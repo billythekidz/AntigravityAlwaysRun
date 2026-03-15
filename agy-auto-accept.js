@@ -395,8 +395,9 @@
                                          allText.includes('run') ||
                                          allText.includes('approve') ||
                                          allText.includes('confirm');
+                        const isExcluded = allText.includes('always run');
                         
-                        if (isTarget && 
+                        if (isTarget && !isExcluded &&
                             button.offsetWidth > 0 && button.offsetHeight > 0 && !button.disabled) {
                             foundButtons.push({ button, iframe: sourceIframe, text: text || ariaLabel || title });
                         }
