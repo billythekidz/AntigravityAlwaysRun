@@ -528,10 +528,6 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 </div>
                 <div class="setup-step">
                     <span class="step-num">3</span>
-                    <span class="step-text">If prompted <em>"allow pasting"</em>, type <kbd>allow pasting</kbd> and press <kbd>Enter</kbd>.</span>
-                </div>
-                <div class="setup-step">
-                    <span class="step-num">4</span>
                     <span class="step-text">Copy the script below:</span>
                 </div>
                 <div class="setup-code-wrap">
@@ -539,7 +535,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                     <button class="setup-copy-btn" id="setup-copy-btn">📋 Copy</button>
                 </div>
                 <div class="setup-step">
-                    <span class="step-num">5</span>
+                    <span class="step-num">4</span>
                     <span class="step-text">Paste into Console:<br>
                         <strong>Windows/Linux:</strong> <kbd>Ctrl</kbd>+<kbd>V</kbd> &nbsp;
                         <strong>macOS:</strong> <kbd>⌘</kbd>+<kbd>V</kbd><br>
@@ -547,8 +543,12 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                     </span>
                 </div>
                 <div class="setup-step">
+                    <span class="step-num">5</span>
+                    <span class="step-text">If you see <em>"type allow pasting"</em> warning, type <kbd>allow pasting</kbd>, press <kbd>Enter</kbd>, then paste again.</span>
+                </div>
+                <div class="setup-step">
                     <span class="step-num">6</span>
-                    <span class="step-text">Press <kbd>Enter</kbd>. You should see <code>[AlwaysRun] Injected.</code> in the console. DevTools will close automatically.</span>
+                    <span class="step-text">Press <kbd>Enter</kbd> to run. You should see <code>[AlwaysRun] Injected.</code> in the console. DevTools will close automatically.</span>
                 </div>
             </div>
         </div>
