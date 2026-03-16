@@ -296,6 +296,24 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         });
         this._configServer.start().then(port => {
             const script = this._buildInjectScript(port, liveCfg);
+
+            // macOS: use VS Code API to avoid Accessibility permission requirements
+            if (os.platform() === 'darwin') {
+                this._injectViaMacOS(script).then(ok => {
+                    if (ok) {
+                        this._scriptInjected = true;
+                        this._postToWebview({ command: 'diagLog', text: '\u2705 Injected — config via HTTP port ' + port, logType: 'success' });
+                    } else {
+                        this._postToWebview({ command: 'scanError', message: 'Injection not confirmed (user may not have pasted)' });
+                        this._isRunning = false;
+                        this._syncConfig();
+                        this._postToWebview({ command: 'stopped' });
+                    }
+                });
+                return;
+            }
+
+            // Windows / Linux: use NativeClickHandler (PowerShell / xdotool)
             const encoded = Buffer.from(script).toString('base64');
             const projectName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
             this._native.openDevToolsAndInject(encoded, projectName).then(result => {
@@ -324,6 +342,73 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             this._isRunning = false;
             this._postToWebview({ command: 'stopped' });
         });
+    }
+
+    /**
+     * macOS-specific injection: uses VS Code API (no Accessibility permissions needed).
+     * 1. Open DevTools via vscode.commands
+     * 2. Copy script to clipboard via vscode.env.clipboard
+     * 3. Show notification asking user to press ⌘V + Enter (one-time, 2 keystrokes)
+     * 4. Poll for signal file confirmation
+     * 5. Auto-close DevTools
+     */
+    private async _injectViaMacOS(script: string): Promise<boolean> {
+        // Delete stale signal file
+        const cfgPath = path.join(os.tmpdir(), 'agy-config.json');
+        try { fs.unlinkSync(cfgPath); } catch {}
+
+        // 1. Open DevTools (VS Code API — no OS permissions needed)
+        this._postToWebview({ command: 'diagLog', text: '🔧 Opening DevTools via VS Code API...', logType: 'info' });
+        await vscode.commands.executeCommand('workbench.action.toggleDevTools');
+        await this._sleep(2500);
+
+        // 2. Copy script to clipboard (VS Code API — no OS permissions needed)
+        await vscode.env.clipboard.writeText(script);
+        this._postToWebview({ command: 'diagLog', text: '📋 Script copied to clipboard', logType: 'info' });
+
+        // 3. Show instructions to user (one-time, 2 keystrokes)
+        this._postToWebview({
+            command: 'diagLog',
+            text: '⌨️ In DevTools Console: press ⌘V then Enter (one-time setup)',
+            logType: 'warning'
+        });
+        vscode.window.showInformationMessage(
+            'AlwaysRun: Script is on your clipboard. In the DevTools Console, press ⌘V then Enter.',
+            'OK'
+        );
+
+        // 4. Poll for injection confirmation (max 60s — user needs time to paste)
+        const confirmed = await this._pollForSignal(cfgPath, 60);
+
+        // 5. Close DevTools automatically
+        if (confirmed) {
+            await vscode.commands.executeCommand('workbench.action.toggleDevTools');
+            this._postToWebview({ command: 'diagLog', text: '✅ Injection confirmed — DevTools closed', logType: 'success' });
+        }
+
+        return confirmed;
+    }
+
+    private _pollForSignal(cfgPath: string, maxSeconds: number): Promise<boolean> {
+        return new Promise(resolve => {
+            let elapsed = 0;
+            const interval = setInterval(() => {
+                if (fs.existsSync(cfgPath)) {
+                    clearInterval(interval);
+                    resolve(true);
+                    return;
+                }
+                elapsed += 0.5;
+                if (elapsed >= maxSeconds) {
+                    clearInterval(interval);
+                    resolve(false);
+                }
+            }, 500);
+        });
+    }
+
+    private _sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     public stopAutoScan() {
