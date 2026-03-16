@@ -208,11 +208,11 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
   // ── DOM scanner ───────────────────────────────────────────────────────
   function scanDoc(doc, label) {
     try {
-      var btns = doc.querySelectorAll('button,[role="button"],a.monaco-button');
+      var btns = doc.querySelectorAll('button');
       for (var i = 0; i < btns.length; i++) {
         var b = btns[i];
         var txt = ((b.textContent||'')+(b.getAttribute('aria-label')||'')+(b.getAttribute('title')||'')).toLowerCase().trim();
-        if (!txt || b.offsetWidth===0 || b.disabled || b.dataset.agyClicked) { continue; }
+        if (!txt || b.offsetWidth===0 || b.offsetHeight===0 || b.disabled || b.dataset.agyClicked) { continue; }
         if (window.__agyConfig.excludes.some(function(e){return txt.indexOf(e)!==-1;})) { continue; }
         if (window.__agyConfig.matchers.some(function(m){return txt.indexOf(m)!==-1;})) {
           b.dataset.agyClicked = '1';
