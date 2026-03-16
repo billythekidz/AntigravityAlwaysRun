@@ -163,9 +163,13 @@ public class W2 {
     [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool f);
     [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte sc, uint flags, UIntPtr ex);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, int x, int y, int data, int extra);
     public const uint KEYUP = 0x0002;
     public const byte VK_RETURN = 0x0D;
     public const int  SW_RESTORE = 9;
+    public const uint MOUSE_LEFTDOWN = 0x0002;
+    public const uint MOUSE_LEFTUP   = 0x0004;
 }
 "@
 
@@ -175,6 +179,13 @@ $TS      = [System.Windows.Automation.TreeScope]
 $PC      = [System.Windows.Automation.PropertyCondition]
 $diag    = @()
 $projectName = '${projectName}'
+
+# ── Config file signal ────────────────────────────────────────────────────
+# Delete before injection — injected JS will recreate it as confirmation.
+# PowerShell polls for the file to appear instead of using a blind timeout.
+$cfgPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), 'agy-config.json')
+if (Test-Path $cfgPath) { Remove-Item $cfgPath -Force -ErrorAction SilentlyContinue }
+$diag += "Config deleted — will be recreated by injected script"
 
 function Find-Window([string]$titlePattern) {
     $root    = $UIA::RootElement
@@ -276,37 +287,64 @@ $diag += "Script on clipboard ($($scriptContent.Length) chars)"
 # ── Step 3: Focus DevTools + verify ─────────────────────────────────────
 $hWnd = [IntPtr]$devWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
 Invoke-ForceFocus $hWnd
-Start-Sleep -Milliseconds 500
+Start-Sleep -Milliseconds 600
 if ([W2]::GetForegroundWindow() -ne $hWnd) {
     $diag += "Focus retry..."
     Invoke-ForceFocus $hWnd
-    Start-Sleep -Milliseconds 500
+    Start-Sleep -Milliseconds 600
 }
 
 # ── Step 4: Navigate to Console tab via DevTools Command Menu ────────────
-# Using Ctrl+Shift+P (DevTools command menu, NOT VS Code's) → type 'console'
-# → 'Show Console panel' appears first → Enter.
-# This is IDEMPOTENT: works from any tab, safe when already on Console.
-# Ctrl+Shift+J was a TOGGLE and broke when user was already on Console tab.
+# Ctrl+Shift+P = DevTools command menu (NOT VS Code's). Type 'console' → Enter.
+# IDEMPOTENT: works from any tab, no toggle risk unlike Ctrl+Shift+J.
+# Re-focus before Ctrl+Shift+P to ensure it goes to DevTools, not VS Code.
+Invoke-ForceFocus $hWnd
+Start-Sleep -Milliseconds 200
 [System.Windows.Forms.SendKeys]::SendWait('^+p')
-Start-Sleep -Milliseconds 600
+Start-Sleep -Milliseconds 1000    # wait for command menu to appear
 [System.Windows.Forms.SendKeys]::SendWait('console')
-Start-Sleep -Milliseconds 400
+Start-Sleep -Milliseconds 600     # wait for search results
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-Start-Sleep -Milliseconds 600
+Start-Sleep -Milliseconds 1200    # wait for console panel to fully load
 
-# ── Step 5: Paste script — Escape cancels any existing input, then Ctrl+V ─
-[System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+# ── Step 5: Click console input area to focus it ─────────────────────────
+# After command menu, focus may be on the panel header, not the input '>'.
+# Click at the bottom of DevTools window where the console input lives.
+$dtRect = $devWin.GetCurrentPropertyValue($UIA::BoundingRectangleProperty)
+$clickX = [int]($dtRect.X + $dtRect.Width / 2)
+$clickY = [int]($dtRect.Y + $dtRect.Height - 20)  # ~20px from bottom = input row
+[W2]::SetCursorPos($clickX, $clickY)
+Start-Sleep -Milliseconds 100
+[W2]::mouse_event([W2]::MOUSE_LEFTDOWN, 0, 0, 0, 0)
+Start-Sleep -Milliseconds 50
+[W2]::mouse_event([W2]::MOUSE_LEFTUP, 0, 0, 0, 0)
+Start-Sleep -Milliseconds 400    # wait for focus to settle
+
+# ── Step 6: Paste — Ctrl+A clears existing console input, Ctrl+V pastes ─
+# Ctrl+A inside DevTools console = select all in console input (safe, it's a
+# separate window from VS Code editor). ESC removed — it might close drawer.
+[System.Windows.Forms.SendKeys]::SendWait('^a')
 Start-Sleep -Milliseconds 200
 [System.Windows.Forms.SendKeys]::SendWait('^v')
-Start-Sleep -Milliseconds 1500
+Start-Sleep -Milliseconds 2000    # large script — wait to fully render
 
-# ── Step 6: Execute ───────────────────────────────────────────────────────
+# ── Step 7: Execute ───────────────────────────────────────────────────────
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 $diag += "Script pasted and executed!"
 
-# Close DevTools — wait long enough for script to fully initialize its interval
-Start-Sleep -Milliseconds 5000
+# ── Wait for injected script to confirm (polls config file) ──────────────
+# The injected JS writes the config file after init — this is our signal.
+# No fixed sleep — close as soon as we know the script is running.
+$maxSec = 15; $waited = 0
+while ($waited -lt $maxSec) {
+    if (Test-Path $cfgPath) {
+        $diag += "Injection confirmed! Config recreated after $waited s"
+        break
+    }
+    Start-Sleep -Milliseconds 300
+    $waited += 0.3
+}
+if ($waited -ge $maxSec) { $diag += "Warning: no confirmation in $maxSec s — closing anyway" }
 try {
     $wp = $devWin.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
     $wp.Close()

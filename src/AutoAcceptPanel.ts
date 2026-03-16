@@ -252,6 +252,9 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
   window.__agyTimer = setInterval(scanAll, window.__agyScanInterval);
   scanAll();
   console.log('[AlwaysRun] Injected. Config file:', CFG_PATH);
+  // Write config file — signals to PowerShell that injection succeeded.
+  // (PS deleted the file before inject and polls for it to reappear.)
+  try { require('fs').writeFileSync(CFG_PATH, JSON.stringify(window.__agyConfig), 'utf8'); } catch(e) {}
 })();`;
     }
 
