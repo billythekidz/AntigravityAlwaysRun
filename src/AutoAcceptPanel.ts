@@ -127,6 +127,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     private _scanIntervalMs = 3000; // default 3s
     private _profile: ProjectProfile = PROFILES[3]; // default: generic
     private _cdp!: NativeClickHandler;
+    private _firstScanDone = false;
 
     // Toggle states for which buttons to auto-click
     private _toggles = {
@@ -274,6 +275,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     public startAutoScan() {
         if (this._isRunning) { return; }
         this._isRunning = true;
+        this._firstScanDone = false;
 
         console.log(`[Always Run] Auto-scan STARTED (interval: ${this._scanIntervalMs}ms)`);
         this._postToWebview({ command: 'started' });
@@ -333,19 +335,26 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         try {
             const result = await this._cdp.click(matchers, excludes);
 
+            // Show diagnostic lines only on first scan (to avoid flooding the log)
+            if (!this._firstScanDone && Array.isArray((result as any).diag)) {
+                for (const line of (result as any).diag as string[]) {
+                    this._postToWebview({ command: 'diagLog', text: line, logType: 'info' });
+                }
+                this._firstScanDone = true;
+            }
+
             if (result.error && result.clicked === 0) {
                 this._postToWebview({ command: 'scanError', message: result.error });
-            } else {
+            } else if (result.clicked > 0) {
                 this._postToWebview({
                     command: 'scanResult',
                     clicked: result.clicked,
                     found: result.found,
                     scanned: 1
                 });
-                if (result.clicked > 0) {
-                    console.log(`[Always Run] Clicked ${result.clicked}:`, result.found.map((b: any) => b.text).join(', '));
-                }
+                console.log(`[Always Run] Clicked ${result.clicked}:`, result.found.map((b: any) => b.text).join(', '));
             }
+            // (no error + 0 clicked = silent scan — diag lines already logged above)
         } catch (error: any) {
             console.error('[Always Run] Scan error:', error.message);
             this._postToWebview({ command: 'scanError', message: error.message });

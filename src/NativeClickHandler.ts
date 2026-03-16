@@ -44,6 +44,7 @@ try { Add-Type -AssemblyName UIAutomationTypes  -ErrorAction Stop } catch {}
 
 $found   = @()
 $clicked = 0
+$diag    = @()
 $UIA     = [System.Windows.Automation.AutomationElement]
 $CT      = [System.Windows.Automation.ControlType]
 $TS      = [System.Windows.Automation.TreeScope]
@@ -52,7 +53,9 @@ $PC      = [System.Windows.Automation.PropertyCondition]
 $root    = $UIA::RootElement
 $winCond = New-Object $PC($UIA::ControlTypeProperty, $CT::Window)
 $btnCond = New-Object $PC($UIA::ControlTypeProperty, $CT::Button)
+$allBtnCond = New-Object $PC($UIA::ControlTypeProperty, $CT::Button)
 $windows = $root.FindAll($TS::Children, $winCond)
+$diag += "Windows on desktop: $($windows.Count)"
 
 foreach ($win in $windows) {
     try {
@@ -63,44 +66,54 @@ foreach ($win in $windows) {
         if ($pnam -notmatch 'antigravity|code') { continue }
 
         $title   = $win.GetCurrentPropertyValue($UIA::NameProperty)
+        $diag += "  [WINDOW] $title (proc=$pnam pid=$pid)"
+
         $buttons = $win.FindAll($TS::Subtree, $btnCond)
+        $diag += "    Buttons found: $($buttons.Count)"
 
         foreach ($btn in $buttons) {
             try {
                 $name = $btn.GetCurrentPropertyValue($UIA::NameProperty)
                 if (-not $name) { continue }
                 $low  = $name.ToLower()
+                $diag += "    [BTN] '$name'"
 
                 $skip = $false
                 foreach ($ex in $excludesList) {
-                    if ($low.Contains($ex)) { $skip = $true; break }
+                    if ($low.Contains($ex)) { $skip = $true; $diag += "      -> EXCLUDED by '$ex'"; break }
                 }
                 if ($skip) { continue }
 
+                $matched = $false
                 foreach ($m in $matchersList) {
                     if ($low.Contains($m)) {
+                        $matched = $true
                         $ok = $btn.GetCurrentPropertyValue($UIA::IsEnabledProperty)
+                        $diag += "      -> MATCH '$m' enabled=$ok"
                         if ($ok) {
                             try {
                                 $ip = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
                                 $ip.Invoke()
                                 $found   += ,@($name, $title)
                                 $clicked++
-                            } catch {}
+                                $diag += "      -> CLICKED!"
+                            } catch { $diag += "      -> Click FAILED: $_" }
                         }
                         break
                     }
                 }
-            } catch {}
+                if (-not $matched) { $diag += "      -> no match" }
+            } catch { $diag += "    [BTN ERR] $_" }
         }
-    } catch {}
+    } catch { $diag += "  [WIN ERR] $_" }
 }
 
 $out = [PSCustomObject]@{
     clicked = $clicked
     found   = @($found | ForEach-Object { [PSCustomObject]@{ text = $_[0]; window = $_[1] } })
+    diag    = $diag
 }
-$out | ConvertTo-Json -Compress -Depth 3
+$out | ConvertTo-Json -Compress -Depth 4
 `.trim();
 
         return this._run('powershell', ['-NonInteractive', '-NoProfile', '-Command', ps]);
