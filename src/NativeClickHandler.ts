@@ -73,15 +73,15 @@ $yesMarkers  = @('do you want to','would you like','are you sure','confirm','all
 
 foreach ($win in $windows) {
     try {
-        $pid   = $win.GetCurrentPropertyValue($UIA::ProcessIdProperty)
-        $proc  = Get-Process -Id $pid -ErrorAction SilentlyContinue
+        $winPid  = $win.GetCurrentPropertyValue($UIA::ProcessIdProperty)
+        $proc  = Get-Process -Id $winPid -ErrorAction SilentlyContinue
         if (-not $proc) { continue }
         $pnam  = $proc.ProcessName.ToLower()
         if ($pnam -notmatch 'antigravity|code') { continue }
 
         $title = $win.GetCurrentPropertyValue($UIA::NameProperty)
         $hWnd  = [IntPtr]$win.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
-        $diag += "[WINDOW] '$title' proc=$pnam pid=$pid"
+        $diag += "[WINDOW] '$title' proc=$pnam pid=$winPid"
 
         # ── Read ALL accessible text from the window ────────────────────────
         $allText = [System.Text.StringBuilder]::new()
