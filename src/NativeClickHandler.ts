@@ -283,20 +283,26 @@ if ([W2]::GetForegroundWindow() -ne $hWnd) {
     Start-Sleep -Milliseconds 500
 }
 
-# ── Step 4: Paste — Escape cancels any input, Ctrl+V pastes ─────────────
-# NO Ctrl+A (risk: selects all in VS Code editor!)
-# NO Ctrl+Shift+J (risk: stuck Shift key = chaotic shortcuts!)
+# ── Step 4: Switch to Console tab (Ctrl+Shift+J) ─────────────────────────
+# Safe now — DevTools is verified in foreground before sending keys
+[System.Windows.Forms.SendKeys]::SendWait('^+j')
+Start-Sleep -Milliseconds 800
+# Re-focus after tab switch (SendKeys may have shifted focus briefly)
+Invoke-ForceFocus $hWnd
+Start-Sleep -Milliseconds 300
+
+# ── Step 5: Paste script — Escape cancels any existing input, then Ctrl+V ─
 [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
 Start-Sleep -Milliseconds 200
 [System.Windows.Forms.SendKeys]::SendWait('^v')
 Start-Sleep -Milliseconds 1500
 
-# ── Step 5: Execute ───────────────────────────────────────────────────────
+# ── Step 6: Execute ───────────────────────────────────────────────────────
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 $diag += "Script pasted and executed!"
 
-# Close DevTools window after execution
-Start-Sleep -Milliseconds 2500
+# Close DevTools — wait long enough for script to fully initialize its interval
+Start-Sleep -Milliseconds 5000
 try {
     $wp = $devWin.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
     $wp.Close()
