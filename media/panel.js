@@ -157,6 +157,10 @@
                 addLog('⚠️ Scan error: ' + message.message, 'warning');
                 break;
 
+            case 'diagLog':
+                addLog(message.text, message.logType || 'info');
+                break;
+
             case 'projectProfile':
                 var p = message.profile;
                 if (projectBadge) {
@@ -228,4 +232,12 @@
     // ==================== INIT ====================
     updateStatus(false);
     addLog('Ready. Click "Start Auto" to begin scanning.', 'info');
+
+    // Diagnose button
+    var diagnoseBtn = document.getElementById('diagnose-btn');
+    if (diagnoseBtn) {
+        diagnoseBtn.addEventListener('click', function () {
+            vscode.postMessage({ command: 'diagnose' });
+        });
+    }
 })();

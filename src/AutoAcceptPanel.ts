@@ -182,6 +182,9 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                         this._restartScanTimer();
                     }
                     break;
+                case 'diagnose':
+                    this._runDiagnosis();
+                    break;
                 case 'log':
                     console.log(`[Always Run] ${message.text}`);
                     break;
@@ -194,6 +197,55 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             }
         });
     }
+
+    private async _runDiagnosis() {
+        const log = (msg: string, type = 'info') => this._postToWebview({ command: 'diagLog', text: msg, logType: type });
+
+        log('🔬 Starting extension host diagnosis...', 'info');
+
+        // 1. Test require('electron')
+        let electron: any;
+        try {
+            electron = require('electron');
+            log('✅ require("electron") OK — keys: ' + Object.keys(electron).join(', '), 'success');
+        } catch (e: any) {
+            log('❌ require("electron") FAILED: ' + e.message, 'error');
+            log('⚠️ Cannot access Electron APIs from extension host. Need alternative approach.', 'warning');
+            return;
+        }
+
+        // 2. Test BrowserWindow.getAllWindows()
+        let windows: any[];
+        try {
+            windows = electron.BrowserWindow.getAllWindows();
+            log(`✅ BrowserWindow.getAllWindows() — ${windows.length} window(s)`, 'success');
+            windows.forEach((w: any, i: number) => {
+                try { log(`   Window[${i}]: "${w.getTitle()}" id=${w.id}`, 'info'); } catch {}
+            });
+        } catch (e: any) {
+            log('❌ BrowserWindow.getAllWindows() FAILED: ' + e.message, 'error');
+            return;
+        }
+
+        if (windows.length === 0) {
+            log('❌ No windows found — cannot execute scripts', 'error');
+            return;
+        }
+
+        // 3. Test executeJavaScript on each window
+        const testScript = `JSON.stringify({ title: document.title, url: location.href, ok: true })`;
+        for (let i = 0; i < windows.length; i++) {
+            const win = windows[i];
+            try {
+                const result = await win.webContents.executeJavaScript(testScript, true);
+                log(`✅ Window[${i}] executeJavaScript OK: ${result}`, 'success');
+            } catch (e: any) {
+                log(`❌ Window[${i}] executeJavaScript FAILED: ${e.message}`, 'error');
+            }
+        }
+        log('🔬 Diagnosis complete.', 'info');
+    }
+
 
     public toggleAutoClick() {
         if (this._isRunning) {
@@ -593,7 +645,10 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         <div class="log-section">
             <div class="log-header">
                 <span>Activity Log</span>
-                <button class="btn-clear" id="clear-log-btn">Clear</button>
+                <div style="display:flex;gap:4px">
+                    <button class="btn-clear" id="diagnose-btn" title="Test extension host Electron access">🔧 Diag</button>
+                    <button class="btn-clear" id="clear-log-btn">Clear</button>
+                </div>
             </div>
             <div class="log-container" id="log-container">
                 <div class="log-entry log-info">Ready. Click "Start Auto" to begin.</div>

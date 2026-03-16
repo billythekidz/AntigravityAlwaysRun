@@ -138,10 +138,17 @@ def main():
 
     ok(f"Packaged: {vsix_name}")
 
-    # 5. Publish to Open VSX
-    warn("Publishing to Open VSX...")
-    run(f"npx -y ovsx publish {vsix_name} --pat {ovsx_token}", cwd=EXTENSION_DIR)
-    ok("Published to Open VSX successfully!")
+    # ── PUBLISH ENABLED FLAG ──────────────────────────────────
+    PUBLISH_ENABLED = False  # Set to True when ready to publish
+    # ─────────────────────────────────────────────────────────
+
+    if PUBLISH_ENABLED:
+        # 5. Publish to Open VSX
+        warn("Publishing to Open VSX...")
+        run(f"npx -y ovsx publish {vsix_name} --pat {ovsx_token}", cwd=EXTENSION_DIR)
+        ok("Published to Open VSX successfully!")
+    else:
+        warn("[PUBLISH DISABLED] Skipping Open VSX publish")
 
     # 6. Git Commit & Push
     warn("Committing changes to Git...")
@@ -151,19 +158,22 @@ def main():
     run(f"git tag {tag_name}", cwd=PROJECT_ROOT)
     run(f"git push origin {tag_name} --no-verify", cwd=PROJECT_ROOT)
 
-    # 7. GitHub Release (publish VSIX to the PUBLIC repo for user trust/visibility)
-    warn("Creating GitHub Release on PUBLIC repo...")
-    relative_vsix = vsix_name
-    run(
-        f'gh release create "{tag_name}" "{relative_vsix}" '
-        f'--repo billythekidz/AntigravityAlwaysRun '
-        f'--title "{release_title}" '
-        f'--notes "{release_notes}"',
-        cwd=PROJECT_ROOT
-    )
-    ok("GitHub Release created on public repo!")
-
-    info(f"RELEASE COMPLETE: Antigravity Always Run v{new_version} is now LIVE!")
+    if PUBLISH_ENABLED:
+        # 7. GitHub Release (publish VSIX to the PUBLIC repo for user trust/visibility)
+        warn("Creating GitHub Release on PUBLIC repo...")
+        relative_vsix = vsix_name
+        run(
+            f'gh release create "{tag_name}" "{relative_vsix}" '
+            f'--repo billythekidz/AntigravityAlwaysRun '
+            f'--title "{release_title}" '
+            f'--notes "{release_notes}"',
+            cwd=PROJECT_ROOT
+        )
+        ok("GitHub Release created on public repo!")
+        info(f"RELEASE COMPLETE: Antigravity Always Run v{new_version} is now LIVE!")
+    else:
+        warn("[PUBLISH DISABLED] Skipping GitHub Release")
+        info(f"VSIX packaged locally: {vsix_name} (not published)")
 
 
 if __name__ == "__main__":
