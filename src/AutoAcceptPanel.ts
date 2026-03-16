@@ -54,7 +54,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
         // Send project name (folder name) to badge
-        this._postToWebview({ command: 'projectProfile', profile: { projectName: getProjectName() } });
+        this._postToWebview({ command: 'projectProfile', profile: { projectName: getProjectName(), label: getProjectName(), description: '', emoji: '📁', defaultToggles: { yes: true, run: true, retry: true, accept: true } } });
 
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage((message) => {

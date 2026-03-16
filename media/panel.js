@@ -170,9 +170,10 @@
                     projectBadge.title = p.projectName || p.description;
                 }
                 // Apply default toggles from profile
-                toggleYes.checked = p.defaultToggles.yes;
-                toggleRun.checked = p.defaultToggles.run;
-                toggleRetry.checked = p.defaultToggles.retry;
+                var dt = p.defaultToggles || { yes: true, run: true, retry: true, accept: true };
+                toggleYes.checked = dt.yes;
+                toggleRun.checked = dt.run;
+                toggleRetry.checked = dt.retry;
                 sendToggleState();
                 addLog('🔍 Project detected: ' + p.emoji + ' ' + p.label + (p._workspace ? ' (' + p._workspace.split('\\').pop() + ')' : ''), 'info');
                 break;
