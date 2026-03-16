@@ -223,18 +223,13 @@ if (-not $devWin) {
     }
     $diag += "Main window ($bestCount elems): '$($agWin.GetCurrentPropertyValue($UIA::NameProperty))'"
 
-    # Focus it — only SW_RESTORE if actually minimized, else SW_SHOW (no resize)
+    # Focus it — no ShowWindow (avoids resize), just bring to front
     $hWnd = [IntPtr]$agWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
-    if ([W2]::IsIconic($hWnd)) {
-        [W2]::ShowWindow($hWnd, [W2]::SW_RESTORE) | Out-Null
-    } else {
-        [W2]::ShowWindow($hWnd, [W2]::SW_SHOW) | Out-Null
-    }
     [W2]::SetForegroundWindow($hWnd) | Out-Null
     Start-Sleep -Milliseconds 600
 
-    # Open Command Palette, paste command via Set-Clipboard (STA-safe)
-    Set-Clipboard -Value 'Toggle Developer Tools'
+    # Open Command Palette — SetDataObject persists on clipboard (STA-safe)
+    [System.Windows.Forms.Clipboard]::SetDataObject('Toggle Developer Tools', $true)
     Start-Sleep -Milliseconds 200
     [System.Windows.Forms.SendKeys]::SendWait('^+p')
     Start-Sleep -Milliseconds 700
@@ -255,39 +250,15 @@ if (-not $devWin) {
 }
 $diag += "DevTools window found!"
 
-# ── Step 2: Put script on clipboard and VERIFY ───────────────────────────
-try {
-    Set-Clipboard -Value $scriptContent
-    $diag += "Script copied to clipboard (Set-Clipboard)"
-} catch {
-    # Fallback to Windows.Forms (already STA now with -Sta flag)
-    try {
-        [System.Windows.Forms.Clipboard]::SetText($scriptContent)
-        $diag += "Script copied to clipboard (WinForms fallback)"
-    } catch {
-        $diag += "Clipboard error: $_"
-        Write-Output (@{clicked=0;found=@();diag=$diag;error="Clipboard: $_"} | ConvertTo-Json -Compress)
-        exit
-    }
-}
-# Verify clipboard actually has our content
-$verify = Get-Clipboard -Raw
-if (-not $verify -or $verify.Length -lt 10) {
-    $diag += "Clipboard verify FAILED — content missing"
-    Write-Output (@{clicked=0;found=@();diag=$diag;error="Clipboard verify failed"} | ConvertTo-Json -Compress)
-    exit
-}
-$diag += "Clipboard verified OK ($($verify.Length) chars)"
+# ── Step 2: Put script on clipboard (SetDataObject — persistent, STA-safe) ──
+[System.Windows.Forms.Clipboard]::SetDataObject($scriptContent, $true)
+Start-Sleep -Milliseconds 300
+$diag += "Script on clipboard ($($scriptContent.Length) chars)"
 
-# ── Step 3: Focus DevTools window ────────────────────────────────────────
+# ── Step 3: Focus DevTools — no ShowWindow (avoids resize) ───────────────
 $hWnd = [IntPtr]$devWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
-if ([W2]::IsIconic($hWnd)) {
-    [W2]::ShowWindow($hWnd, [W2]::SW_RESTORE) | Out-Null
-} else {
-    [W2]::ShowWindow($hWnd, [W2]::SW_SHOW) | Out-Null
-}
 [W2]::SetForegroundWindow($hWnd) | Out-Null
-Start-Sleep -Milliseconds 400
+Start-Sleep -Milliseconds 500
 
 # ── Step 4: Open console tab (Ctrl+Shift+J → Console panel + focuses input)
 [System.Windows.Forms.SendKeys]::SendWait('^+j')
