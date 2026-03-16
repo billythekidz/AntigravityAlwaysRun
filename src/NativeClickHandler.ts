@@ -11,6 +11,147 @@ export interface ClickResult {
 export class NativeClickHandler {
     private platform = os.platform();
 
+    // ── DevTools Console Injection ──────────────────────────────────────────
+    /**
+     * 1. Open Help > Toggle Developer Tools (if not already open)
+     * 2. Focus the DevTools console
+     * 3. Paste the encoded script via clipboard → Ctrl+V → Enter
+     */
+    async openDevToolsAndInject(encodedScript: string): Promise<ClickResult> {
+        if (this.platform !== 'win32') {
+            return { clicked: 0, found: [], diag: ['Windows only for now'] };
+        }
+
+        const ps = `
+try { Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop } catch {}
+try { Add-Type -AssemblyName UIAutomationTypes  -ErrorAction Stop } catch {}
+Add-Type -AssemblyName System.Windows.Forms
+
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class W2 {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte sc, uint flags, UIntPtr ex);
+    public const uint KEYUP = 0x0002;
+    public const byte VK_RETURN = 0x0D;
+    public const byte VK_CTRL   = 0x11;
+    public const byte VK_A      = 0x41;
+    public const byte VK_V      = 0x56;
+}
+"@
+
+$UIA     = [System.Windows.Automation.AutomationElement]
+$CT      = [System.Windows.Automation.ControlType]
+$TS      = [System.Windows.Automation.TreeScope]
+$PC      = [System.Windows.Automation.PropertyCondition]
+$diag    = @()
+
+function Find-Window([string]$titlePattern) {
+    $root    = $UIA::RootElement
+    $winCond = New-Object $PC($UIA::ControlTypeProperty, $CT::Window)
+    $wins    = $root.FindAll($TS::Children, $winCond)
+    foreach ($w in $wins) {
+        $t = $w.GetCurrentPropertyValue($UIA::NameProperty)
+        if ($t -match $titlePattern) { return $w }
+    }
+    return $null
+}
+
+# ── Decode script from base64 ─────────────────────────────────────────────
+$scriptBytes   = [System.Convert]::FromBase64String('${encodedScript}')
+$scriptContent = [System.Text.Encoding]::UTF8.GetString($scriptBytes)
+$diag += "Script decoded: $($scriptContent.Length) chars"
+
+# ── Step 1: Open DevTools if not already open ─────────────────────────────
+$devWin = Find-Window 'Developer Tools - vscode-file'
+if (-not $devWin) {
+    $diag += "DevTools not open, opening via Help > Toggle Developer Tools..."
+    $agWin = Find-Window 'Antigravity'
+    if (-not $agWin) { Write-Output (@{clicked=0;found=@();diag=$diag;error='Antigravity window not found'} | ConvertTo-Json -Compress); exit }
+
+    $helpCond   = New-Object $PC($UIA::NameProperty, "Help")
+    $helpItem   = $agWin.FindFirst($TS::Descendants, $helpCond)
+    if (-not $helpItem) { $diag += "Help menu not found"; Write-Output (@{clicked=0;found=@();diag=$diag;error='Help menu not found'} | ConvertTo-Json -Compress); exit }
+
+    $ip = $helpItem.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+    $ip.Invoke()
+    Start-Sleep -Milliseconds 700
+
+    $root    = $UIA::RootElement
+    $toggleCond = New-Object $PC($UIA::NameProperty, "Toggle Developer Tools")
+    $toggleItem = $root.FindFirst($TS::Descendants, $toggleCond)
+    if (-not $toggleItem) { $diag += "Toggle Developer Tools not in menu"; Write-Output (@{clicked=0;found=@();diag=$diag;error='Toggle DevTools menu item not found'} | ConvertTo-Json -Compress); exit }
+
+    $ip2 = $toggleItem.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+    $ip2.Invoke()
+    $diag += "Clicked Toggle Developer Tools, waiting for DevTools to open..."
+    Start-Sleep -Milliseconds 2000
+
+    # Try again to find DevTools window
+    $devWin = Find-Window 'Developer Tools - vscode-file'
+}
+
+if (-not $devWin) {
+    $diag += "DevTools window still not found after waiting"
+    Write-Output (@{clicked=0;found=@();diag=$diag;error='DevTools window did not open'} | ConvertTo-Json -Compress)
+    exit
+}
+$diag += "DevTools window found!"
+
+# ── Step 2: Put script on clipboard ──────────────────────────────────────
+try {
+    [System.Windows.Forms.Clipboard]::SetText($scriptContent)
+    $diag += "Script copied to clipboard"
+} catch {
+    $diag += "Clipboard error: $_"
+    Write-Output (@{clicked=0;found=@();diag=$diag;error="Clipboard: $_"} | ConvertTo-Json -Compress)
+    exit
+}
+
+# ── Step 3: Focus DevTools window ────────────────────────────────────────
+$hWnd = [IntPtr]$devWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
+[W2]::ShowWindow($hWnd, 9) | Out-Null     # SW_RESTORE
+[W2]::SetForegroundWindow($hWnd) | Out-Null
+Start-Sleep -Milliseconds 400
+
+# ── Step 4: Open console tab with Ctrl+[ (move to Console panel) ─────────
+# Press Ctrl+\` to toggle console drawer, or just use Escape then Ctrl+\`
+# DevTools shortcut: Ctrl+Shift+J opens Console panel directly (in Chrome)
+[System.Windows.Forms.SendKeys]::SendWait('^+j')
+Start-Sleep -Milliseconds 400
+
+# ── Step 5: Select all existing text and delete ───────────────────────────
+[System.Windows.Forms.SendKeys]::SendWait('^a')
+Start-Sleep -Milliseconds 100
+
+# ── Step 6: Paste the script ──────────────────────────────────────────────
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 200
+
+# ── Step 7: Execute ───────────────────────────────────────────────────────
+[W2]::keybd_event([W2]::VK_RETURN, 0, 0,        [UIntPtr]::Zero)
+[W2]::keybd_event([W2]::VK_RETURN, 0, [W2]::KEYUP, [UIntPtr]::Zero)
+$diag += "Script pasted and executed!"
+
+@{clicked=1; found=@(@{text='DevTools inject'; window='Developer Tools'}); diag=$diag} | ConvertTo-Json -Compress -Depth 3
+`.trim();
+
+        return this._run('powershell', ['-NonInteractive', '-NoProfile', '-Command', ps]);
+    }
+
+    /**
+     * Send stop command to DevTools console: clears the auto-accept interval.
+     */
+    async stopDevToolsScript(): Promise<void> {
+        if (this.platform !== 'win32') { return; }
+        const stopScript = Buffer.from('if(window.__agyTimer){clearInterval(window.__agyTimer);window.__agyTimer=null;console.log("[AlwaysRun] Stopped");}').toString('base64');
+        const injectStop = await this.openDevToolsAndInject(stopScript);
+        console.log('[NativeClickHandler] Stop result:', injectStop.diag?.join(' | '));
+    }
+
+    // ── Fallback: periodic text-scan + keyboard shortcut ───────────────────
     async click(matchers: string[], excludes: string[]): Promise<ClickResult> {
         if (matchers.length === 0) { return { clicked: 0, found: [] }; }
         switch (this.platform) {
@@ -20,11 +161,6 @@ export class NativeClickHandler {
         }
     }
 
-    // ── Windows ─────────────────────────────────────────────────────────────
-    // Strategy: UIA can't reach VS Code webview buttons (nested Chromium).
-    // Instead: read ALL text from Antigravity window → detect active prompt →
-    // send the correct keyboard shortcut to that window.
-
     private _clickWindows(matchers: string[], excludes: string[]): Promise<ClickResult> {
         const matchersJson = JSON.stringify(matchers);
         const excludesJson = JSON.stringify(excludes);
@@ -33,8 +169,8 @@ export class NativeClickHandler {
 $matchersList = '${matchersJson}' | ConvertFrom-Json
 $excludesList = '${excludesJson}' | ConvertFrom-Json
 
-try { Add-Type -AssemblyName UIAutomationClient  -ErrorAction Stop } catch {}
-try { Add-Type -AssemblyName UIAutomationTypes   -ErrorAction Stop } catch {}
+try { Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop } catch {}
+try { Add-Type -AssemblyName UIAutomationTypes  -ErrorAction Stop } catch {}
 Add-Type -AssemblyName System.Windows.Forms
 
 Add-Type @"
@@ -42,12 +178,9 @@ using System;
 using System.Runtime.InteropServices;
 public class WinUser {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
-    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern void keybd_event(byte vk,byte scan,uint flags,UIntPtr extra);
     public const byte VK_RETURN = 0x0D;
-    public const byte VK_MENU   = 0x12;  // Alt
-    public const byte VK_TAB    = 0x09;
-    public const byte VK_SPACE  = 0x20;
+    public const byte VK_MENU   = 0x12;
     public const uint KEYUP     = 0x0002;
 }
 "@
@@ -58,220 +191,96 @@ $TS   = [System.Windows.Automation.TreeScope]
 $PC   = [System.Windows.Automation.PropertyCondition]
 $CC   = [System.Windows.Automation.Condition]
 
-$root = $UIA::RootElement
+$root    = $UIA::RootElement
 $winCond = New-Object $PC($UIA::ControlTypeProperty, $CT::Window)
 $windows = $root.FindAll($TS::Children, $winCond)
 
 $found   = @()
 $clicked = 0
-$diag    = @()
-$diag += "Total desktop windows: $($windows.Count)"
+$diag    = @("Desktop windows: $($windows.Count)")
 
-# ── Prompt keyword banks ────────────────────────────────────────────────────
-$runMarkers  = @('step requires input','requires input','run command','run alt','runalt','reject | run','ask every time')
-$yesMarkers  = @('do you want to','would you like','are you sure','confirm','allowing','allow this')
+$runPhrases   = @('step requires input','requires input','run command','run alt+','reject | run','ask every time','1 step requires')
+$yesPhrases   = @('do you want to','would you like','are you sure','1 step requires','confirm')
+$retryPhrase  = 'retry failed'
 
 foreach ($win in $windows) {
     try {
-        $winPid  = $win.GetCurrentPropertyValue($UIA::ProcessIdProperty)
-        $proc  = Get-Process -Id $winPid -ErrorAction SilentlyContinue
+        $winPid = $win.GetCurrentPropertyValue($UIA::ProcessIdProperty)
+        $proc   = Get-Process -Id $winPid -ErrorAction SilentlyContinue
         if (-not $proc) { continue }
-        $pnam  = $proc.ProcessName.ToLower()
+        $pnam   = $proc.ProcessName.ToLower()
         if ($pnam -notmatch 'antigravity|code') { continue }
 
-        $title = $win.GetCurrentPropertyValue($UIA::NameProperty)
-        $hWnd  = [IntPtr]$win.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
-        $diag += "[WINDOW] '$title' proc=$pnam pid=$winPid"
+        $title  = $win.GetCurrentPropertyValue($UIA::NameProperty)
+        $hWnd   = [IntPtr]$win.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
+        if ($title -match 'Developer Tools') { continue }
+        $diag  += "[WIN] '$title'"
 
-        # ── Read ALL accessible text from the window ────────────────────────
-        $allText = [System.Text.StringBuilder]::new()
-        try {
-            $allElems = $win.FindAll($TS::Subtree, $CC::TrueCondition)
-            $diag += "  Total UIA elements: $($allElems.Count)"
-            foreach ($el in $allElems) {
-                try {
-                    $n = $el.GetCurrentPropertyValue($UIA::NameProperty)
-                    if ($n -and $n.Trim() -ne '') { $allText.AppendLine($n) | Out-Null }
-                } catch {}
-            }
-        } catch { $diag += "  [TEXT READ ERR] $_" }
-
-        $text = $allText.ToString().ToLower()
-        $diag += "  Window text length: $($text.Length) chars"
-
-        # Show sample of what we found
-        $sample = ($text -replace '[\\r\\n]+',' ').Trim()
-        if ($sample.Length -gt 200) { $sample = $sample.Substring(0,200) + '...' }
-        $diag += "  Text sample: $sample"
-
-        # ── Decide which shortcut to send ───────────────────────────────────
-        $hasRun     = $matchersList -contains 'run'   -and ($runMarkers | Where-Object { $text.Contains($_) })
-        $hasYes     = $matchersList -contains 'yes'   -and ($yesMarkers | Where-Object { $text.Contains($_) })
-        $hasRetry   = $matchersList -contains 'retry' -and $text.Contains('retry')
-
-        # Check excludes
-        $isExcluded = $false
-        foreach ($ex in $excludesList) {
-            # Only skip if ONLY excluded text and nothing else
-            if ($text.Contains($ex) -and -not $hasRun -and -not $hasYes -and -not $hasRetry) {
-                $isExcluded = $true; break
-            }
+        $allElems = $win.FindAll($TS::Subtree, $CC::TrueCondition)
+        $sb = [System.Text.StringBuilder]::new()
+        foreach ($el in $allElems) {
+            try {
+                $n = $el.GetCurrentPropertyValue($UIA::NameProperty)
+                if ($n) { $sb.AppendLine($n) | Out-Null }
+            } catch {}
         }
+        $text = $sb.ToString().ToLower()
+        $diag += "  elements=$($allElems.Count) textLen=$($text.Length)"
 
-        if ($isExcluded) { $diag += "  Skipping (excluded)"; continue }
+        $wantsRun   = $matchersList -contains 'run'
+        $wantsYes   = $matchersList -contains 'yes'
+        $wantsRetry = $matchersList -contains 'retry'
+
+        $hasRun   = $wantsRun   -and ($runPhrases  | Where-Object { $text.Contains($_) })
+        $hasYes   = $wantsYes   -and ($yesPhrases  | Where-Object { $text.Contains($_) })
+        $hasRetry = $wantsRetry -and $text.Contains($retryPhrase)
 
         if ($hasRun) {
-            $diag += "  Detected RUN prompt! Sending Alt+Enter to window..."
-            [WinUser]::SetForegroundWindow($hWnd) | Out-Null
-            Start-Sleep -Milliseconds 300
-            # Alt+Enter = Run command
-            [WinUser]::keybd_event([WinUser]::VK_MENU,    0, 0,               [UIntPtr]::Zero)
-            [WinUser]::keybd_event([WinUser]::VK_RETURN,  0, 0,               [UIntPtr]::Zero)
-            [WinUser]::keybd_event([WinUser]::VK_RETURN,  0, [WinUser]::KEYUP,[UIntPtr]::Zero)
-            [WinUser]::keybd_event([WinUser]::VK_MENU,    0, [WinUser]::KEYUP,[UIntPtr]::Zero)
-            $found   += ,@('Run (Alt+Enter)', $title)
-            $clicked++
+            $phrase = ($runPhrases | Where-Object { $text.Contains($_) }) | Select -First 1
+            $diag += "  RUN detected ('$phrase') -> Alt+Enter"
+            [WinUser]::SetForegroundWindow($hWnd) | Out-Null; Start-Sleep -Milliseconds 300
+            [WinUser]::keybd_event([WinUser]::VK_MENU,   0, 0,               [UIntPtr]::Zero)
+            [WinUser]::keybd_event([WinUser]::VK_RETURN, 0, 0,               [UIntPtr]::Zero)
+            [WinUser]::keybd_event([WinUser]::VK_RETURN, 0, [WinUser]::KEYUP,[UIntPtr]::Zero)
+            [WinUser]::keybd_event([WinUser]::VK_MENU,   0, [WinUser]::KEYUP,[UIntPtr]::Zero)
+            $found += ,@("Run (Alt+Enter)", $title); $clicked++
         } elseif ($hasYes) {
-            $diag += "  Detected YES prompt! Sending Enter to window..."
-            [WinUser]::SetForegroundWindow($hWnd) | Out-Null
-            Start-Sleep -Milliseconds 300
-            [WinUser]::keybd_event([WinUser]::VK_RETURN,  0, 0,               [UIntPtr]::Zero)
-            [WinUser]::keybd_event([WinUser]::VK_RETURN,  0, [WinUser]::KEYUP,[UIntPtr]::Zero)
-            $found   += ,@('Yes (Enter)', $title)
-            $clicked++
+            $phrase = ($yesPhrases | Where-Object { $text.Contains($_) }) | Select -First 1
+            $diag += "  YES detected ('$phrase') -> Enter"
+            [WinUser]::SetForegroundWindow($hWnd) | Out-Null; Start-Sleep -Milliseconds 300
+            [WinUser]::keybd_event([WinUser]::VK_RETURN, 0, 0,               [UIntPtr]::Zero)
+            [WinUser]::keybd_event([WinUser]::VK_RETURN, 0, [WinUser]::KEYUP,[UIntPtr]::Zero)
+            $found += ,@("Yes (Enter)", $title); $clicked++
         } elseif ($hasRetry) {
-            $diag += "  Detected RETRY prompt! Sending Alt+Enter to window..."
-            [WinUser]::SetForegroundWindow($hWnd) | Out-Null
-            Start-Sleep -Milliseconds 300
-            [System.Windows.Forms.SendKeys]::SendWait('%{ENTER}')
-            $found   += ,@('Retry (Alt+Enter)', $title)
-            $clicked++
-        } else {
-            $diag += "  No matching prompt detected in window text"
-        }
-    } catch { $diag += "  [WIN ERR] $_" }
+            $diag += "  RETRY detected -> Alt+Enter"
+            [WinUser]::SetForegroundWindow($hWnd) | Out-Null; Start-Sleep -Milliseconds 300
+            [WinUser]::keybd_event([WinUser]::VK_MENU,   0, 0,               [UIntPtr]::Zero)
+            [WinUser]::keybd_event([WinUser]::VK_RETURN, 0, 0,               [UIntPtr]::Zero)
+            [WinUser]::keybd_event([WinUser]::VK_RETURN, 0, [WinUser]::KEYUP,[UIntPtr]::Zero)
+            [WinUser]::keybd_event([WinUser]::VK_MENU,   0, [WinUser]::KEYUP,[UIntPtr]::Zero)
+            $found += ,@("Retry (Alt+Enter)", $title); $clicked++
+        } else { $diag += "  No prompt" }
+    } catch { $diag += "  [ERR] $_" }
 }
 
-$out = [PSCustomObject]@{
-    clicked = $clicked
-    found   = @($found | ForEach-Object { [PSCustomObject]@{ text = $_[0]; window = $_[1] } })
-    diag    = $diag
-}
-$out | ConvertTo-Json -Compress -Depth 4
+@{clicked=$clicked; found=@($found | %{@{text=$_[0];window=$_[1]}}); diag=$diag} | ConvertTo-Json -Compress -Depth 4
 `.trim();
 
         return this._run('powershell', ['-NonInteractive', '-NoProfile', '-Command', ps]);
     }
 
-    // ── macOS ────────────────────────────────────────────────────────────────
-
-    private _clickMacos(matchers: string[], _excludes: string[]): Promise<ClickResult> {
-        const wantsRun   = matchers.includes('run');
-        const wantsYes   = matchers.includes('yes');
-        const wantsRetry = matchers.includes('retry');
-
-        const script = `
-set diag to {}
-set clicked to 0
-set foundList to {}
-
-tell application "System Events"
-    set procs to every process whose (name contains "Antigravity" or name contains "code" or name contains "Code")
-    repeat with proc in procs
-        set pName to name of proc
-        set end of diag to "[PROC] " & pName
-        try
-            set wins to every window of proc
-            repeat with win in wins
-                set wName to name of win
-                set end of diag to "  [WIN] " & wName
-                -- Get all window text
-                set winText to ""
-                try
-                    set allElems to every UI element of win
-                    repeat with el in allElems
-                        try
-                            set winText to winText & (value of el as string) & " "
-                        end try
-                    end repeat
-                end try
-                set winTextLow to do shell script "echo " & quoted form of winText & " | tr '[:upper:]' '[:lower:]'"
-                set end of diag to "  text len=" & (length of winText)
-                
-                ${wantsRun ? `
-                if winTextLow contains "requires input" or winTextLow contains "run command" then
-                    set end of diag to "  RUN prompt detected! Sending Cmd+Option+Enter..."
-                    tell proc to set frontmost to true
-                    delay 0.3
-                    key code 36 using {command down, option down}  -- Cmd+Opt+Enter
-                    set end of foundList to "Run (keyboard)"
-                    set clicked to clicked + 1
-                end if` : ''}
-                ${wantsYes ? `
-                if winTextLow contains "do you want" or winTextLow contains "confirm" then
-                    set end of diag to "  YES prompt detected! Sending Enter..."
-                    tell proc to set frontmost to true
-                    delay 0.3
-                    key code 36  -- Enter
-                    set end of foundList to "Yes (Enter)"
-                    set clicked to clicked + 1
-                end if` : ''}
-            end repeat
-        on error e
-            set end of diag to "  [ERR] " & e
-        end try
-    end repeat
-end tell
-
--- Compose minimal JSON
-set jsonFound to "["
-repeat with i from 1 to length of foundList
-    if i > 1 then set jsonFound to jsonFound & ","
-    set jsonFound to jsonFound & "{\\"text\\":\\"" & (item i of foundList) & "\\",\\"window\\":\\"\\"}"
-end repeat
-set jsonFound to jsonFound & "]"
-
-set jsonDiag to "["
-repeat with i from 1 to length of diag
-    if i > 1 then set jsonDiag to jsonDiag & ","
-    set jsonDiag to jsonDiag & "\\"" & (item i of diag) & "\\""
-end repeat
-set jsonDiag to jsonDiag & "]"
-
-"{\\"clicked\\":" & clicked & ",\\"found\\":" & jsonFound & ",\\"diag\\":" & jsonDiag & "}"
-`;
-        return this._run('osascript', ['-e', script]);
+    private _clickMacos(_m: string[], _e: string[]): Promise<ClickResult> {
+        return Promise.resolve({ clicked: 0, found: [], diag: ['macOS: use openDevToolsAndInject instead'] });
     }
 
-    // ── Linux ────────────────────────────────────────────────────────────────
-
-    private _clickLinux(_matchers: string[], _excludes: string[]): Promise<ClickResult> {
-        const script = `
-# Try to detect prompt via xdotool window name and send keyboard shortcut
-WID=$(xdotool search --name "Antigravity" 2>/dev/null | head -1)
-if [ -z "$WID" ]; then
-    echo '{"clicked":0,"found":[],"diag":["No Antigravity window found via xdotool"]}'
-    exit 0
-fi
-TITLE=$(xdotool getwindowname "$WID" 2>/dev/null)
-# Focus and send Alt+Enter
-xdotool windowactivate --sync "$WID" 2>/dev/null
-sleep 0.3
-xdotool key --window "$WID" alt+Return 2>/dev/null
-echo "{\\"clicked\\":1,\\"found\\":[{\\"text\\":\\"Run (Alt+Enter)\\",\\"window\\":\\"$TITLE\\"}],\\"diag\\":[\\"Found window: $TITLE\\",\\"Sent Alt+Enter\\"]}"
-`;
-        return this._run('bash', ['-c', script]);
+    private _clickLinux(_m: string[], _e: string[]): Promise<ClickResult> {
+        return Promise.resolve({ clicked: 0, found: [], diag: ['Linux: use openDevToolsAndInject instead'] });
     }
-
-    // ── Shared runner ────────────────────────────────────────────────────────
 
     private _run(cmd: string, args: string[]): Promise<ClickResult> {
         return new Promise((resolve) => {
-            const child = execFile(cmd, args, { timeout: 10000 }, (err, stdout) => {
-                if (err && !stdout) {
-                    resolve({ clicked: 0, found: [], error: err.message });
-                    return;
-                }
+            const child = execFile(cmd, args, { timeout: 15000 }, (err, stdout) => {
+                if (err && !stdout) { resolve({ clicked: 0, found: [], error: err.message }); return; }
                 try {
                     const parsed = JSON.parse(stdout.trim());
                     resolve({
@@ -284,7 +293,7 @@ echo "{\\"clicked\\":1,\\"found\\":[{\\"text\\":\\"Run (Alt+Enter)\\",\\"window\
                     resolve({ clicked: 0, found: [], error: 'Parse error: ' + stdout.slice(0, 400) });
                 }
             });
-            setTimeout(() => { try { child.kill(); } catch {} }, 11000);
+            setTimeout(() => { try { child.kill(); } catch {} }, 16000);
         });
     }
 }

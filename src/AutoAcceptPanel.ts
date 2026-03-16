@@ -176,11 +176,14 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 case 'toggleUpdate':
                     this._toggles = message.toggles;
                     console.log('[Always Run] Toggles updated:', this._toggles);
+                    // If running: push live config update to the injected script
+                    if (this._isRunning) {
+                        this._pushConfigUpdate();
+                    }
                     break;
                 case 'intervalChange':
                     this._scanIntervalMs = Math.max(500, Math.min(10000000, message.intervalMs));
                     console.log(`[Always Run] Scan interval: ${this._scanIntervalMs}ms`);
-                    // Restart scanning with new interval if running
                     if (this._isRunning) {
                         this._restartScanTimer();
                     }
@@ -267,60 +270,13 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         this.startAutoScan();
     }
 
-    // ==================== CORE: CDP-based DOM injection ====================
+    // ==================== CORE: DevTools Console Injection ====================
 
     /**
-     * Start the periodic auto-scan loop.
+     * Build the self-contained scan+click script to inject into the DevTools console.
+     * The script uses window.__agyTimer (clearable) and window.__agyConfig (updatable live).
      */
-    public startAutoScan() {
-        if (this._isRunning) { return; }
-        this._isRunning = true;
-        this._firstScanDone = false;
-
-        console.log(`[Always Run] Auto-scan STARTED (interval: ${this._scanIntervalMs}ms)`);
-        this._postToWebview({ command: 'started' });
-
-        // Run immediately
-        this._runScanCycle();
-
-        // Then at configured interval
-        this._scanTimer = setInterval(() => {
-            this._runScanCycle();
-        }, this._scanIntervalMs);
-    }
-
-    /**
-     * Restart the scan timer with the current interval (used when interval changes mid-scan).
-     */
-    private _restartScanTimer() {
-        if (this._scanTimer) {
-            clearInterval(this._scanTimer);
-        }
-        this._scanTimer = setInterval(() => {
-            this._runScanCycle();
-        }, this._scanIntervalMs);
-    }
-
-    /**
-     * Stop the periodic auto-scan loop.
-     */
-    public stopAutoScan() {
-        if (this._scanTimer) {
-            clearInterval(this._scanTimer);
-            this._scanTimer = null;
-        }
-        this._isRunning = false;
-        console.log('[Always Run] Auto-scan STOPPED');
-        this._postToWebview({ command: 'stopped' });
-    }
-
-    /**
-     * Run one scan cycle: execute the scanner in the main window and report results.
-     */
-    private async _runScanCycle() {
-        if (!this._isRunning) { return; }
-
-        // Build matcher lists from toggles + profile
+    private _buildInjectScript(): string {
         const matchers: string[] = [];
         if (this._toggles.yes)   { matchers.push('yes'); }
         if (this._toggles.run)   { matchers.push('run'); }
@@ -329,35 +285,135 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             if (!matchers.includes(extra)) { matchers.push(extra); }
         }
         const excludes = this._profile.excludeMatchers || ['always run', 'always allow', 'always deny'];
+        const intervalMs = this._scanIntervalMs;
 
-        if (matchers.length === 0) { return; }
+        return `(function() {
+  // Stop any previous instance
+  if (window.__agyTimer) { clearInterval(window.__agyTimer); window.__agyTimer = null; }
 
-        try {
-            const result = await this._cdp.click(matchers, excludes);
+  window.__agyConfig = {
+    matchers:  ${JSON.stringify(matchers)},
+    excludes:  ${JSON.stringify(excludes)},
+    intervalMs: ${intervalMs}
+  };
 
-            // Show diagnostic lines only on first scan (to avoid flooding the log)
-            if (!this._firstScanDone && Array.isArray((result as any).diag)) {
-                for (const line of (result as any).diag as string[]) {
+  function scanDoc(doc, label) {
+    try {
+      var btns = doc.querySelectorAll('button,[role="button"],a.monaco-button');
+      var clicked = 0;
+      for (var i = 0; i < btns.length; i++) {
+        var b = btns[i];
+        var txt = ((b.textContent||'')+(b.getAttribute('aria-label')||'')+(b.getAttribute('title')||'')).toLowerCase();
+        var excluded = window.__agyConfig.excludes.some(function(e){return txt.indexOf(e)!==-1;});
+        if (excluded) continue;
+        var matched = window.__agyConfig.matchers.some(function(m){return txt.indexOf(m)!==-1;});
+        if (matched && b.offsetWidth>0 && !b.disabled && !b.dataset.agyClicked) {
+          b.dataset.agyClicked='1';
+          b.click();
+          clicked++;
+          setTimeout(function(){try{delete b.dataset.agyClicked;}catch(e){}},5000);
+          console.log('[AlwaysRun] Clicked:', (b.textContent||'').trim().substring(0,40), '|', label);
+        }
+      }
+      return clicked;
+    } catch(e) { return 0; }
+  }
+
+  function scanAll() {
+    var total = scanDoc(document, 'main');
+    // iframes
+    var iframes = document.querySelectorAll('iframe');
+    for (var i=0;i<iframes.length;i++) {
+      try { total += scanDoc(iframes[i].contentDocument||iframes[i].contentWindow.document,'iframe-'+i); } catch(e){}
+    }
+    // shadow DOM
+    (function shadow(root,d){if(d>5)return;try{root.querySelectorAll('*').forEach(function(el){if(el.shadowRoot){total+=scanDoc(el.shadowRoot,'shadow');shadow(el.shadowRoot,d+1);}});}catch(e){};})(document,0);
+    // webview elements
+    var wvs = document.querySelectorAll('webview');
+    for (var w=0;w<wvs.length;w++) { try{total+=scanDoc(wvs[w].contentDocument,'wv-'+w);}catch(e){} }
+    return total;
+  }
+
+  window.__agyScanAll = scanAll;
+  scanAll();
+  window.__agyTimer = setInterval(scanAll, window.__agyConfig.intervalMs);
+  console.log('[AlwaysRun] Started, matchers:', window.__agyConfig.matchers, 'interval:', window.__agyConfig.intervalMs+'ms');
+})();`;
+    }
+
+    /**
+     * Inject an arbitrary JS command into the DevTools console (for stop/config updates).
+     */
+    private async _injectCommand(js: string): Promise<void> {
+        const encoded = Buffer.from(js).toString('base64');
+        const result = await this._cdp.openDevToolsAndInject(encoded);
+        if (result.diag?.length) {
+            this._postToWebview({ command: 'diagLog', text: result.diag.join(' → '), logType: 'info' });
+        }
+    }
+
+    /**
+     * Push a live config update to the running script (no restart needed).
+     */
+    private async _pushConfigUpdate(): Promise<void> {
+        const matchers: string[] = [];
+        if (this._toggles.yes)   { matchers.push('yes'); }
+        if (this._toggles.run)   { matchers.push('run'); }
+        if (this._toggles.retry) { matchers.push('retry'); }
+        for (const extra of (this._profile.extraMatchers || [])) {
+            if (!matchers.includes(extra)) { matchers.push(extra); }
+        }
+        const js = `if(window.__agyConfig){window.__agyConfig.matchers=${JSON.stringify(matchers)};console.log('[AlwaysRun] Config updated:',window.__agyConfig.matchers);}`;
+        await this._injectCommand(js);
+    }
+
+    public startAutoScan() {
+        if (this._isRunning) { return; }
+        this._isRunning = true;
+        this._postToWebview({ command: 'started' });
+        this._postToWebview({ command: 'diagLog', text: '💉 Injecting script via DevTools console...', logType: 'info' });
+
+        const script = this._buildInjectScript();
+        const encoded = Buffer.from(script).toString('base64');
+        this._cdp.openDevToolsAndInject(encoded).then(result => {
+            if (result.error) {
+                this._postToWebview({ command: 'scanError', message: result.error });
+                this._isRunning = false;
+                this._postToWebview({ command: 'stopped' });
+                return;
+            }
+            if (result.diag?.length) {
+                for (const line of result.diag) {
                     this._postToWebview({ command: 'diagLog', text: line, logType: 'info' });
                 }
-                this._firstScanDone = true;
             }
+            this._postToWebview({ command: 'diagLog', text: '✅ Script injected — running inside VS Code renderer', logType: 'success' });
+        }).catch(err => {
+            this._postToWebview({ command: 'scanError', message: err.message });
+            this._isRunning = false;
+            this._postToWebview({ command: 'stopped' });
+        });
+    }
 
-            if (result.error && result.clicked === 0) {
-                this._postToWebview({ command: 'scanError', message: result.error });
-            } else if (result.clicked > 0) {
-                this._postToWebview({
-                    command: 'scanResult',
-                    clicked: result.clicked,
-                    found: result.found,
-                    scanned: 1
-                });
-                console.log(`[Always Run] Clicked ${result.clicked}:`, result.found.map((b: any) => b.text).join(', '));
-            }
-            // (no error + 0 clicked = silent scan — diag lines already logged above)
-        } catch (error: any) {
-            console.error('[Always Run] Scan error:', error.message);
-            this._postToWebview({ command: 'scanError', message: error.message });
+    public stopAutoScan() {
+        this._isRunning = false;
+        this._postToWebview({ command: 'diagLog', text: '🛑 Stopping injected script...', logType: 'info' });
+        // Inject stop command into the DevTools console
+        const stopJs = `if(window.__agyTimer){clearInterval(window.__agyTimer);window.__agyTimer=null;console.log('[AlwaysRun] Stopped');}`;
+        this._injectCommand(stopJs).then(() => {
+            this._postToWebview({ command: 'stopped' });
+        }).catch(() => {
+            this._postToWebview({ command: 'stopped' });
+        });
+    }
+
+    // Restart the injected script's timer with updated interval
+    private _restartScanTimer() {
+        if (this._isRunning) {
+            const ms = this._scanIntervalMs;
+            const js = `if(window.__agyTimer&&window.__agyScanAll){clearInterval(window.__agyTimer);window.__agyConfig.intervalMs=${ms};window.__agyTimer=setInterval(window.__agyScanAll,${ms});console.log('[AlwaysRun] Interval updated:',${ms}+'ms');}`;
+            this._injectCommand(js).catch(() => {});
+            this._postToWebview({ command: 'diagLog', text: `⏱ Interval updated: ${ms}ms`, logType: 'info' });
         }
     }
 
