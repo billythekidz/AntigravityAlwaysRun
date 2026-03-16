@@ -17,9 +17,9 @@ export class NativeClickHandler {
      * 2. Focus the DevTools console
      * 3. Paste the encoded script via clipboard → Ctrl+V → Enter
      */
-    async openDevToolsAndInject(encodedScript: string): Promise<ClickResult> {
+    async openDevToolsAndInject(encodedScript: string, projectName = ''): Promise<ClickResult> {
         switch (this.platform) {
-            case 'win32':  return this._openDevToolsWindows(encodedScript);
+            case 'win32':  return this._openDevToolsWindows(encodedScript, projectName);
             case 'darwin': return this._openDevToolsMac(encodedScript);
             default:       return this._openDevToolsLinux(encodedScript);
         }
@@ -144,7 +144,7 @@ echo "{\\"clicked\\":1,\\"found\\":[{\\"text\\":\\"DevTools inject\\",\\"window\
     }
 
     // ── Windows PowerShell ─────────────────────────────────────────────────
-    private _openDevToolsWindows(encodedScript: string): Promise<ClickResult> {
+    private _openDevToolsWindows(encodedScript: string, projectName = ''): Promise<ClickResult> {
         const ps = `
 try { Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop } catch {}
 try { Add-Type -AssemblyName UIAutomationTypes  -ErrorAction Stop } catch {}
@@ -157,14 +157,14 @@ public class W2 {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr p);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool f);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte sc, uint flags, UIntPtr ex);
     public const uint KEYUP = 0x0002;
     public const byte VK_RETURN = 0x0D;
-    public const byte VK_CTRL   = 0x11;
-    public const byte VK_A      = 0x41;
-    public const byte VK_V      = 0x56;
-    public const int  SW_SHOW    = 5;   // show without resize
-    public const int  SW_RESTORE = 9;   // restore from minimized
+    public const int  SW_RESTORE = 9;
 }
 "@
 
@@ -173,6 +173,7 @@ $CT      = [System.Windows.Automation.ControlType]
 $TS      = [System.Windows.Automation.TreeScope]
 $PC      = [System.Windows.Automation.PropertyCondition]
 $diag    = @()
+$projectName = '${projectName}'
 
 function Find-Window([string]$titlePattern) {
     $root    = $UIA::RootElement
@@ -185,6 +186,17 @@ function Find-Window([string]$titlePattern) {
     return $null
 }
 
+function Invoke-ForceFocus([IntPtr]$hWnd) {
+    if ([W2]::IsIconic($hWnd)) { [W2]::ShowWindow($hWnd, [W2]::SW_RESTORE) | Out-Null }
+    $cur = [W2]::GetCurrentThreadId()
+    $tgt = [W2]::GetWindowThreadProcessId($hWnd, [IntPtr]::Zero)
+    [W2]::AttachThreadInput($cur, $tgt, $true)  | Out-Null
+    [W2]::BringWindowToTop($hWnd)               | Out-Null
+    [W2]::SetForegroundWindow($hWnd)            | Out-Null
+    [W2]::AttachThreadInput($cur, $tgt, $false) | Out-Null
+    Start-Sleep -Milliseconds 300
+}
+
 # ── Decode script from base64 ─────────────────────────────────────────────
 $scriptBytes   = [System.Convert]::FromBase64String('${encodedScript}')
 $scriptContent = [System.Text.Encoding]::UTF8.GetString($scriptBytes)
@@ -193,25 +205,30 @@ $diag += "Script decoded: $($scriptContent.Length) chars"
 # ── Step 1: Open DevTools if not already open ─────────────────────────────
 $devWin = Find-Window 'Developer Tools - vscode-file'
 if (-not $devWin) {
-    $diag += "DevTools not open — opening via Command Palette..."
+    $diag += "DevTools not open, opening via Command Palette..."
 
-    # Find the Antigravity/Code window with the most UIA elements = main editor
-    $root    = $UIA::RootElement
+    # Find the correct Antigravity editor window for this project
     $winCond = New-Object $PC($UIA::ControlTypeProperty, $CT::Window)
-    $wins    = $root.FindAll($TS::Children, $winCond)
+    $wins    = $UIA::RootElement.FindAll($TS::Children, $winCond)
     $agWin   = $null
     $bestCount = -1
     $cc = [System.Windows.Automation.Condition]::TrueCondition
     foreach ($w in $wins) {
         $t = $w.GetCurrentPropertyValue($UIA::NameProperty)
         if ($t -match 'Developer Tools') { continue }
+        if ($t.Trim() -eq '' -or $t -match '^Agent Manager$|^Default IME$|^Manager$') { continue }
         $winPid = $w.GetCurrentPropertyValue($UIA::ProcessIdProperty)
         try {
             $proc = Get-Process -Id $winPid -ErrorAction SilentlyContinue
             if (-not $proc) { continue }
-            $pnam = $proc.ProcessName.ToLower()
-            if ($pnam -notmatch 'antigravity|code') { continue }
+            if ($proc.ProcessName -notmatch 'antigravity|code') { continue }
         } catch { continue }
+        # Prefer window whose title starts with the project name (exact project match)
+        if ($projectName -ne '' -and $t -match "^$([regex]::Escape($projectName)).*Antigravity") {
+            $agWin = $w; break
+        }
+        # Fallback: main editor has " - Antigravity" in title
+        if ($t -match ' - Antigravity| - Visual Studio Code') { $agWin = $w; break }
         try {
             $cnt = $w.FindAll($TS::Subtree, $cc).Count
             if ($cnt -gt $bestCount) { $agWin = $w; $bestCount = $cnt }
@@ -221,22 +238,22 @@ if (-not $devWin) {
         Write-Output (@{clicked=0;found=@();diag=$diag;error='Antigravity/Code window not found'} | ConvertTo-Json -Compress)
         exit
     }
-    $diag += "Main window ($bestCount elems): '$($agWin.GetCurrentPropertyValue($UIA::NameProperty))'"
+    $diag += "Main window: '$($agWin.GetCurrentPropertyValue($UIA::NameProperty))'"
 
-    # Focus it — no ShowWindow (avoids resize), just bring to front
-    $hWnd = [IntPtr]$agWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
-    [W2]::SetForegroundWindow($hWnd) | Out-Null
-    Start-Sleep -Milliseconds 600
+    $hAgWnd = [IntPtr]$agWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
+    Invoke-ForceFocus $hAgWnd
+    Start-Sleep -Milliseconds 300
 
     # Open Command Palette — SetDataObject persists on clipboard (STA-safe)
     [System.Windows.Forms.Clipboard]::SetDataObject('Toggle Developer Tools', $true)
-    Start-Sleep -Milliseconds 200
+    Start-Sleep -Milliseconds 150
+    Invoke-ForceFocus $hAgWnd   # re-focus right before sending keys
     [System.Windows.Forms.SendKeys]::SendWait('^+p')
     Start-Sleep -Milliseconds 700
     [System.Windows.Forms.SendKeys]::SendWait('^v')
     Start-Sleep -Milliseconds 400
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-    $diag += "Command palette: pasted Toggle Developer Tools + Enter"
+    $diag += "Command palette: Toggle Developer Tools sent"
     Start-Sleep -Milliseconds 2500
 
     $devWin = Find-Window 'Developer Tools - vscode-file'
@@ -255,18 +272,16 @@ $diag += "DevTools window found!"
 Start-Sleep -Milliseconds 300
 $diag += "Script on clipboard ($($scriptContent.Length) chars)"
 
-# ── Step 3: Focus DevTools — no ShowWindow (avoids resize) ───────────────
+# ── Step 3: Focus DevTools with AttachThreadInput ────────────────────────
 $hWnd = [IntPtr]$devWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
-[W2]::SetForegroundWindow($hWnd) | Out-Null
-Start-Sleep -Milliseconds 500
+Invoke-ForceFocus $hWnd
 
 # ── Step 4: Open console tab (Ctrl+Shift+J → Console panel + focuses input)
 [System.Windows.Forms.SendKeys]::SendWait('^+j')
 Start-Sleep -Milliseconds 800
 
-# ── Step 5: Re-focus DevTools explicitly before paste ────────────────────
-[W2]::SetForegroundWindow($hWnd) | Out-Null
-Start-Sleep -Milliseconds 300
+# ── Step 5: Re-focus DevTools before paste ───────────────────────────────
+Invoke-ForceFocus $hWnd
 
 # ── Step 6: Clear any existing text, paste script ─────────────────────────
 [System.Windows.Forms.SendKeys]::SendWait('^a')

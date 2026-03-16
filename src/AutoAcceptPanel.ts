@@ -282,7 +282,8 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         };
         const script = this._buildInjectScript(this._configPath, liveCfg);
         const encoded = Buffer.from(script).toString('base64');
-        this._native.openDevToolsAndInject(encoded).then(result => {
+        const projectName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
+        this._native.openDevToolsAndInject(encoded, projectName).then(result => {
             if (result.error) {
                 this._postToWebview({ command: 'scanError', message: result.error });
                 this._isRunning = false;
