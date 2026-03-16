@@ -155,8 +155,10 @@ def main():
     run("git add .", cwd=PROJECT_ROOT)
     run(f'git commit --no-verify -m "{commit_msg}"', cwd=PROJECT_ROOT)
     run("git push origin main --no-verify", cwd=PROJECT_ROOT)
+    run("git push private main --no-verify", cwd=PROJECT_ROOT)
     run(f"git tag {tag_name}", cwd=PROJECT_ROOT)
     run(f"git push origin {tag_name} --no-verify", cwd=PROJECT_ROOT)
+    run(f"git push private {tag_name} --no-verify", cwd=PROJECT_ROOT)
 
     if PUBLISH_ENABLED:
         # 7. GitHub Release (publish VSIX to the PUBLIC repo for user trust/visibility)
