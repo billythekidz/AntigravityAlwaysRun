@@ -135,6 +135,16 @@ Start-Sleep -Milliseconds 200
 [W2]::keybd_event([W2]::VK_RETURN, 0, [W2]::KEYUP, [UIntPtr]::Zero)
 $diag += "Script pasted and executed!"
 
+# Close DevTools window after execution
+Start-Sleep -Milliseconds 800
+try {
+    $wp = $devWin.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
+    $wp.Close()
+    $diag += "DevTools closed."
+} catch {
+    $diag += "Could not close DevTools: $_"
+}
+
 @{clicked=1; found=@(@{text='DevTools inject'; window='Developer Tools'}); diag=$diag} | ConvertTo-Json -Compress -Depth 3
 `.trim();
 
