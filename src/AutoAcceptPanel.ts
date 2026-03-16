@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { CdpHandler } from './CdpHandler';
+import { NativeClickHandler } from './NativeClickHandler';
 
 // ==================== PROJECT DETECTION ====================
 
@@ -126,7 +126,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     private _scanTimer: ReturnType<typeof setInterval> | null = null;
     private _scanIntervalMs = 3000; // default 3s
     private _profile: ProjectProfile = PROFILES[3]; // default: generic
-    private _cdp!: CdpHandler;
+    private _cdp!: NativeClickHandler;
 
     // Toggle states for which buttons to auto-click
     private _toggles = {
@@ -136,11 +136,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     };
 
     constructor(private readonly _extensionUri: vscode.Uri) {
-        const extPath = _extensionUri.fsPath;
-        this._cdp = new CdpHandler(
-            (msg, type) => this._postToWebview({ command: 'diagLog', text: msg, logType: type || 'info' }),
-            extPath
-        );
+        this._cdp = new NativeClickHandler();
     }
 
     public resolveWebviewView(
@@ -312,7 +308,6 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             this._scanTimer = null;
         }
         this._isRunning = false;
-        this._cdp.stop().catch(() => {});
         console.log('[Always Run] Auto-scan STOPPED');
         this._postToWebview({ command: 'stopped' });
     }
@@ -323,25 +318,33 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     private async _runScanCycle() {
         if (!this._isRunning) { return; }
 
-        try {
-            const { connectedCount, windowTitle } = await this._cdp.runCycle();
+        // Build matcher lists from toggles + profile
+        const matchers: string[] = [];
+        if (this._toggles.yes)   { matchers.push('yes'); }
+        if (this._toggles.run)   { matchers.push('run'); }
+        if (this._toggles.retry) { matchers.push('retry'); }
+        for (const extra of (this._profile.extraMatchers || [])) {
+            if (!matchers.includes(extra)) { matchers.push(extra); }
+        }
+        const excludes = this._profile.excludeMatchers || ['always run', 'always allow', 'always deny'];
 
-            if (connectedCount === 0) {
-                this._postToWebview({
-                    command: 'scanError',
-                    message: `CDP not found on port ${this._cdp.basePort}±${this._cdp.portRange}. Is Antigravity browser running?`
-                });
+        if (matchers.length === 0) { return; }
+
+        try {
+            const result = await this._cdp.click(matchers, excludes);
+
+            if (result.error && result.clicked === 0) {
+                this._postToWebview({ command: 'scanError', message: result.error });
             } else {
-                // Update project badge from window title
-                if (windowTitle) {
-                    const detected = ProjectDetector.detectFromTitle(windowTitle);
-                    if (detected.projectName !== (this._profile as any).projectName) {
-                        this._profile = detected;
-                        this._postToWebview({ command: 'projectProfile', profile: detected });
-                    }
+                this._postToWebview({
+                    command: 'scanResult',
+                    clicked: result.clicked,
+                    found: result.found,
+                    scanned: 1
+                });
+                if (result.clicked > 0) {
+                    console.log(`[Always Run] Clicked ${result.clicked}:`, result.found.map((b: any) => b.text).join(', '));
                 }
-                // Acknowledge scan (no explicit click count from CDP inject — script runs inside browser)
-                this._postToWebview({ command: 'scanResult', clicked: 0, found: [], scanned: connectedCount });
             }
         } catch (error: any) {
             console.error('[Always Run] Scan error:', error.message);
