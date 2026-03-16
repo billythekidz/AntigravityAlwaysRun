@@ -264,27 +264,45 @@ $hWnd = [IntPtr]$devWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty
 [W2]::SetForegroundWindow($hWnd) | Out-Null
 Start-Sleep -Milliseconds 400
 
-# ── Step 4: Open console tab with Ctrl+[ (move to Console panel) ─────────
-# Press Ctrl+\` to toggle console drawer, or just use Escape then Ctrl+\`
-# DevTools shortcut: Ctrl+Shift+J opens Console panel directly (in Chrome)
+# ── Step 4: Open console tab (Ctrl+Shift+J → Console panel) ──────────────
 [System.Windows.Forms.SendKeys]::SendWait('^+j')
-Start-Sleep -Milliseconds 400
+Start-Sleep -Milliseconds 600
 
-# ── Step 5: Select all existing text and delete ───────────────────────────
+# ── Step 5: Click near bottom of DevTools to focus console input ──────────
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class Mouse2 {
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern void SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e);
+    public struct RECT { public int L,T,R,B; }
+    public const int MOUSEEVENTF_LEFTDOWN = 0x02;
+    public const int MOUSEEVENTF_LEFTUP   = 0x04;
+}
+"@
+$rect = New-Object Mouse2+RECT
+[Mouse2]::GetWindowRect($hWnd, [ref]$rect) | Out-Null
+$cx = [int](($rect.L + $rect.R) / 2)
+$cy = [int]($rect.B - 40)   # near bottom = console input row
+[Mouse2]::SetCursorPos($cx, $cy)
+[Mouse2]::mouse_event([Mouse2]::MOUSEEVENTF_LEFTDOWN, $cx, $cy, 0, 0)
+Start-Sleep -Milliseconds 50
+[Mouse2]::mouse_event([Mouse2]::MOUSEEVENTF_LEFTUP,   $cx, $cy, 0, 0)
+Start-Sleep -Milliseconds 300
+
+# ── Step 6: Clear any existing text, paste script ─────────────────────────
 [System.Windows.Forms.SendKeys]::SendWait('^a')
-Start-Sleep -Milliseconds 100
-
-# ── Step 6: Paste the script ──────────────────────────────────────────────
-[System.Windows.Forms.SendKeys]::SendWait('^v')
 Start-Sleep -Milliseconds 200
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 1000   # large script — give it time to render
 
 # ── Step 7: Execute ───────────────────────────────────────────────────────
-[W2]::keybd_event([W2]::VK_RETURN, 0, 0,        [UIntPtr]::Zero)
-[W2]::keybd_event([W2]::VK_RETURN, 0, [W2]::KEYUP, [UIntPtr]::Zero)
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 $diag += "Script pasted and executed!"
 
 # Close DevTools window after execution
-Start-Sleep -Milliseconds 800
+Start-Sleep -Milliseconds 2500
 try {
     $wp = $devWin.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
     $wp.Close()
