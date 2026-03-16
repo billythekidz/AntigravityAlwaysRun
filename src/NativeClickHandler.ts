@@ -67,29 +67,43 @@ $diag += "Script decoded: $($scriptContent.Length) chars"
 # ── Step 1: Open DevTools if not already open ─────────────────────────────
 $devWin = Find-Window 'Developer Tools - vscode-file'
 if (-not $devWin) {
-    $diag += "DevTools not open, opening via Help > Toggle Developer Tools..."
-    $agWin = Find-Window 'Antigravity'
-    if (-not $agWin) { Write-Output (@{clicked=0;found=@();diag=$diag;error='Antigravity window not found'} | ConvertTo-Json -Compress); exit }
+    $diag += "DevTools not open, sending Ctrl+Shift+I to open..."
 
-    $helpCond   = New-Object $PC($UIA::NameProperty, "Help")
-    $helpItem   = $agWin.FindFirst($TS::Descendants, $helpCond)
-    if (-not $helpItem) { $diag += "Help menu not found"; Write-Output (@{clicked=0;found=@();diag=$diag;error='Help menu not found'} | ConvertTo-Json -Compress); exit }
-
-    $ip = $helpItem.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-    $ip.Invoke()
-    Start-Sleep -Milliseconds 700
-
+    # Find the main Antigravity/Code window (prefer the one with longest title = main editor)
     $root    = $UIA::RootElement
-    $toggleCond = New-Object $PC($UIA::NameProperty, "Toggle Developer Tools")
-    $toggleItem = $root.FindFirst($TS::Descendants, $toggleCond)
-    if (-not $toggleItem) { $diag += "Toggle Developer Tools not in menu"; Write-Output (@{clicked=0;found=@();diag=$diag;error='Toggle DevTools menu item not found'} | ConvertTo-Json -Compress); exit }
+    $winCond = New-Object $PC($UIA::ControlTypeProperty, $CT::Window)
+    $wins    = $root.FindAll($TS::Children, $winCond)
+    $agWin   = $null
+    $bestLen = -1
+    foreach ($w in $wins) {
+        $t = $w.GetCurrentPropertyValue($UIA::NameProperty)
+        $winPid = $w.GetCurrentPropertyValue($UIA::ProcessIdProperty)
+        try {
+            $proc = Get-Process -Id $winPid -ErrorAction SilentlyContinue
+            if (-not $proc) { continue }
+            $pnam = $proc.ProcessName.ToLower()
+            if ($pnam -notmatch 'antigravity|code') { continue }
+        } catch { continue }
+        if ($t -notmatch 'Developer Tools' -and $t.Length -gt $bestLen) {
+            $agWin = $w; $bestLen = $t.Length
+        }
+    }
+    if (-not $agWin) {
+        Write-Output (@{clicked=0;found=@();diag=$diag;error='Antigravity/Code window not found'} | ConvertTo-Json -Compress)
+        exit
+    }
+    $diag += "Found main window: '$($agWin.GetCurrentPropertyValue($UIA::NameProperty))'"
 
-    $ip2 = $toggleItem.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-    $ip2.Invoke()
-    $diag += "Clicked Toggle Developer Tools, waiting for DevTools to open..."
-    Start-Sleep -Milliseconds 2000
+    # Focus the window and send Ctrl+Shift+I (Toggle Developer Tools shortcut)
+    $hWnd = [IntPtr]$agWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
+    [W2]::ShowWindow($hWnd, 9) | Out-Null  # SW_RESTORE
+    [W2]::SetForegroundWindow($hWnd) | Out-Null
+    Start-Sleep -Milliseconds 500
 
-    # Try again to find DevTools window
+    [System.Windows.Forms.SendKeys]::SendWait('^+i')  # Ctrl+Shift+I
+    $diag += "Sent Ctrl+Shift+I, waiting for DevTools..."
+    Start-Sleep -Milliseconds 2500
+
     $devWin = Find-Window 'Developer Tools - vscode-file'
 }
 
