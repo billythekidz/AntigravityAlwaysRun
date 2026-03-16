@@ -67,16 +67,18 @@ $diag += "Script decoded: $($scriptContent.Length) chars"
 # ── Step 1: Open DevTools if not already open ─────────────────────────────
 $devWin = Find-Window 'Developer Tools - vscode-file'
 if (-not $devWin) {
-    $diag += "DevTools not open, sending Ctrl+Shift+I to open..."
+    $diag += "DevTools not open — opening via Command Palette..."
 
-    # Find the main Antigravity/Code window (prefer the one with longest title = main editor)
+    # Find the Antigravity/Code window with the most UIA elements = main editor
     $root    = $UIA::RootElement
     $winCond = New-Object $PC($UIA::ControlTypeProperty, $CT::Window)
     $wins    = $root.FindAll($TS::Children, $winCond)
     $agWin   = $null
-    $bestLen = -1
+    $bestCount = -1
+    $cc = [System.Windows.Automation.Condition]::TrueCondition
     foreach ($w in $wins) {
         $t = $w.GetCurrentPropertyValue($UIA::NameProperty)
+        if ($t -match 'Developer Tools') { continue }
         $winPid = $w.GetCurrentPropertyValue($UIA::ProcessIdProperty)
         try {
             $proc = Get-Process -Id $winPid -ErrorAction SilentlyContinue
@@ -84,27 +86,34 @@ if (-not $devWin) {
             $pnam = $proc.ProcessName.ToLower()
             if ($pnam -notmatch 'antigravity|code') { continue }
         } catch { continue }
-        if ($t -notmatch 'Developer Tools' -and $t.Length -gt $bestLen) {
-            $agWin = $w; $bestLen = $t.Length
-        }
+        try {
+            $cnt = $w.FindAll($TS::Subtree, $cc).Count
+            if ($cnt -gt $bestCount) { $agWin = $w; $bestCount = $cnt }
+        } catch {}
     }
     if (-not $agWin) {
         Write-Output (@{clicked=0;found=@();diag=$diag;error='Antigravity/Code window not found'} | ConvertTo-Json -Compress)
         exit
     }
-    $diag += "Found main window: '$($agWin.GetCurrentPropertyValue($UIA::NameProperty))'"
+    $diag += "Main window ($bestCount elems): '$($agWin.GetCurrentPropertyValue($UIA::NameProperty))'"
 
-    # Focus the window and send Ctrl+Shift+I (Toggle Developer Tools shortcut)
+    # Focus it
     $hWnd = [IntPtr]$agWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
-    [W2]::ShowWindow($hWnd, 9) | Out-Null  # SW_RESTORE
+    [W2]::ShowWindow($hWnd, 9) | Out-Null
     [W2]::SetForegroundWindow($hWnd) | Out-Null
-    Start-Sleep -Milliseconds 500
+    Start-Sleep -Milliseconds 600
 
-    [System.Windows.Forms.SendKeys]::SendWait('^+i')  # Ctrl+Shift+I
-    $diag += "Sent Ctrl+Shift+I, waiting for DevTools..."
+    # Open Command Palette and run Toggle Developer Tools
+    [System.Windows.Forms.SendKeys]::SendWait('^+p')
+    Start-Sleep -Milliseconds 700
+    [System.Windows.Forms.SendKeys]::SendWait('Toggle Developer Tools')
+    Start-Sleep -Milliseconds 500
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    $diag += "Command palette: Toggle Developer Tools → Enter"
     Start-Sleep -Milliseconds 2500
 
     $devWin = Find-Window 'Developer Tools - vscode-file'
+
 }
 
 if (-not $devWin) {
