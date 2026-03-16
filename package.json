@@ -1,0 +1,73 @@
+{
+    "name": "antigravity-always-run",
+    "displayName": "Antigravity Always Run",
+    "description": "Always Run — auto-accept button clicker for Antigravity IDE. Scans iframes and webviews for Accept, Run, Approve, or Confirm buttons.",
+    "version": "1.0.0",
+    "publisher": "antigravity-unity",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/billythekidz/UnityAntigravityIDE"
+    },
+    "engines": {
+        "vscode": "^1.80.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "keywords": [
+        "always-run",
+        "auto-click",
+        "automation",
+        "antigravity"
+    ],
+    "activationEvents": [],
+    "main": "./out/extension.js",
+    "contributes": {
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "antigravity-always-run",
+                    "title": "Antigravity Always Run",
+                    "icon": "assets/icon.svg"
+                }
+            ]
+        },
+        "views": {
+            "antigravity-always-run": [
+                {
+                    "type": "webview",
+                    "id": "antigravity-always-run.panel",
+                    "name": "Always Run"
+                }
+            ]
+        },
+        "commands": [
+            {
+                "command": "antigravity-always-run.toggleAutoClick",
+                "title": "Toggle Auto-Click",
+                "category": "Always Run"
+            },
+            {
+                "command": "antigravity-always-run.stop",
+                "title": "Stop Auto-Clicker",
+                "category": "Always Run"
+            },
+            {
+                "command": "antigravity-always-run.injectScript",
+                "title": "Inject Always Run Script",
+                "category": "Always Run"
+            }
+        ]
+    },
+    "scripts": {
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "package": "npx -y @vscode/vsce package --no-dependencies"
+    },
+    "devDependencies": {
+        "@types/node": "^18.0.0",
+        "@types/vscode": "^1.80.0",
+        "typescript": "^5.0.0"
+    }
+}

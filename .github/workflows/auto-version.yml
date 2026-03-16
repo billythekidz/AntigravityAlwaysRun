@@ -1,0 +1,50 @@
+name: AlwaysRun Auto Bump Version
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'AntigravityAlwaysRun~/**'
+
+permissions:
+  contents: write
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    # Skip if the commit was made by this action (prevents infinite loop)
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read current version
+        id: current
+        run: |
+          VERSION=$(jq -r '.version' AntigravityAlwaysRun~/package.json)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Current AlwaysRun version: $VERSION"
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          CURRENT="${{ steps.current.outputs.version }}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          PATCH=$((PATCH + 1))
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          jq --arg v "$NEW_VERSION" '.version = $v' AntigravityAlwaysRun~/package.json > package.tmp.json
+          mv package.tmp.json AntigravityAlwaysRun~/package.json
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Bumped: $CURRENT → $NEW_VERSION"
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add AntigravityAlwaysRun~/package.json
+          git diff --staged --quiet && echo "No changes" && exit 0
+          git commit -m "chore(always-run): bump version to ${{ steps.bump.outputs.new_version }} [skip ci]"
+          git push

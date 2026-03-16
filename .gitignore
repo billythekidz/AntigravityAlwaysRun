@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+
+# Packaged extensions
+*.vsix
+
+# Secrets
+.secrets/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Source maps
+*.js.map

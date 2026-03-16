@@ -394,7 +394,9 @@
                         const isTarget = allText.includes('accept') || 
                                          allText.includes('run') ||
                                          allText.includes('approve') ||
-                                         allText.includes('confirm');
+                                         allText.includes('confirm') ||
+                                         allText.includes('retry') ||
+                                         allText.includes('yes');
                         const isExcluded = allText.includes('always run');
                         
                         if (isTarget && !isExcluded &&
