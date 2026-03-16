@@ -238,7 +238,7 @@
 
     setupCopyBtn.addEventListener('click', function () {
         var code = setupScriptCode.textContent;
-        if (code && code !== 'Click "Start Auto" first to generate the script.') {
+        if (code && code !== 'Click "Manual Start" first to generate the script.') {
             navigator.clipboard.writeText(code).then(function () {
                 setupCopyBtn.textContent = '✅ Copied!';
                 addLog('📋 Script copied to clipboard', 'success');

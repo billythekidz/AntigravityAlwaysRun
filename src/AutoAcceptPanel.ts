@@ -581,31 +581,34 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 <span class="warning-chevron collapsed" id="setup-chevron">▾</span>
             </div>
             <div class="setup-body hidden" id="setup-body">
-                <div style="margin-bottom:8px">
-                    <button class="btn btn-primary" id="manual-start-btn" style="width:100%;font-size:12px;padding:6px 12px">
-                        <span class="btn-icon">▶️</span> Manual Start (start server without auto-inject)
-                    </button>
-                </div>
                 <div class="setup-step">
                     <span class="step-num">1</span>
+                    <span class="step-text">Start the config server:<br>
+                        <button class="btn btn-primary" id="manual-start-btn" style="width:100%;font-size:12px;padding:6px 12px;margin-top:4px">
+                            <span class="btn-icon">▶️</span> Manual Start
+                        </button>
+                    </span>
+                </div>
+                <div class="setup-step">
+                    <span class="step-num">2</span>
                     <span class="step-text">Open DevTools Console:<br>
                         <button class="setup-open-btn" id="setup-open-devtools">🔧 Open DevTools</button>
                     </span>
                 </div>
                 <div class="setup-step">
-                    <span class="step-num">2</span>
+                    <span class="step-num">3</span>
                     <span class="step-text">Click the <strong>Console</strong> tab in DevTools.</span>
                 </div>
                 <div class="setup-step">
-                    <span class="step-num">3</span>
+                    <span class="step-num">4</span>
                     <span class="step-text">Copy the script below:</span>
                 </div>
                 <div class="setup-code-wrap">
-                    <pre class="setup-code" id="setup-script-code">Click "Start Auto" first to generate the script.</pre>
+                    <pre class="setup-code" id="setup-script-code">Click "Manual Start" first to generate the script.</pre>
                     <button class="setup-copy-btn" id="setup-copy-btn">📋 Copy</button>
                 </div>
                 <div class="setup-step">
-                    <span class="step-num">4</span>
+                    <span class="step-num">5</span>
                     <span class="step-text">Paste into Console:<br>
                         <strong>Windows/Linux:</strong> <kbd>Ctrl</kbd>+<kbd>V</kbd> &nbsp;
                         <strong>macOS:</strong> <kbd>⌘</kbd>+<kbd>V</kbd><br>
@@ -613,11 +616,11 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                     </span>
                 </div>
                 <div class="setup-step">
-                    <span class="step-num">5</span>
+                    <span class="step-num">6</span>
                     <span class="step-text">If you see <em>"type allow pasting"</em> warning, type <kbd>allow pasting</kbd>, press <kbd>Enter</kbd>, then paste again.</span>
                 </div>
                 <div class="setup-step">
-                    <span class="step-num">6</span>
+                    <span class="step-num">7</span>
                     <span class="step-text">Press <kbd>Enter</kbd> to run. You should see <code>[AlwaysRun] Injected.</code> in the console. DevTools will close automatically.</span>
                 </div>
             </div>
