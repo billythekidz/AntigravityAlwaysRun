@@ -283,6 +283,77 @@ body {
     flex-shrink: 0;
 }
 
+/* ── Scan Interval ── */
+.interval-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.interval-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--vscode-descriptionForeground, #858585);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.interval-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.interval-btn {
+    width: 28px;
+    height: 28px;
+    background: var(--vscode-button-secondaryBackground, #3a3d41);
+    color: var(--vscode-button-secondaryForeground, #cccccc);
+    border: 1px solid var(--vscode-input-border, #3c3c3c);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+
+.interval-btn:hover {
+    background: var(--vscode-button-secondaryHoverBackground, #45494e);
+}
+
+.interval-btn:active {
+    transform: scale(0.95);
+}
+
+.interval-input {
+    flex: 1;
+    height: 28px;
+    background: var(--vscode-input-background, #1e1e1e);
+    color: var(--vscode-input-foreground, #cccccc);
+    border: 1px solid var(--vscode-input-border, #3c3c3c);
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: inherit;
+    text-align: center;
+    padding: 0 8px;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.interval-input::-webkit-outer-spin-button,
+.interval-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.interval-input:focus {
+    outline: none;
+    border-color: var(--vscode-focusBorder, #007acc);
+}
+
 /* ── Scan Info ── */
 .scan-info {
     font-size: 11px;

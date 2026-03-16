@@ -2,6 +2,8 @@
 // ═══════════════════════════════════════════════════════════
 // Always Run Panel — Webview Client Script
 // Runs inside the VS Code side panel webview
+// Communicates with the extension host which does the actual
+// button scanning in the main Electron renderer window.
 // ═══════════════════════════════════════════════════════════
 
 (function () {
@@ -14,7 +16,7 @@
     const state = {
         isRunning: false,
         totalClicks: 0,
-        interval: null
+        intervalSec: 3
     };
 
     // ==================== DOM ELEMENTS ====================
@@ -25,6 +27,11 @@
     const logContainer = document.getElementById('log-container');
     const clearLogBtn = document.getElementById('clear-log-btn');
     const scanInfo = document.getElementById('scan-info');
+
+    // Toggle checkboxes
+    const toggleYes = document.getElementById('toggle-yes');
+    const toggleRun = document.getElementById('toggle-run');
+    const toggleRetry = document.getElementById('toggle-retry');
 
     // ==================== LOGGING ====================
     function addLog(text, type) {
@@ -47,7 +54,7 @@
         state.isRunning = running;
         statusDot.className = 'status-dot' + (running ? ' active' : ' stopped');
         statusText.textContent = running ? '● Scanning' : 'Idle';
-        scanInfo.textContent = running ? 'Scanning every 3 seconds' : 'Stopped';
+        scanInfo.textContent = running ? 'Scanning every ' + state.intervalSec + 's' : 'Stopped';
 
         // Update toggle button
         if (running) {
@@ -59,64 +66,48 @@
         }
     }
 
-    function updateCounts() {
-        clickCount.textContent = state.totalClicks;
-    }
-
-    // ==================== BUTTON SCANNER ====================
-    // This runs inside the webview — it can scan the parent window
-    // through the VS Code API messaging system
-    function startScanning() {
-        if (state.interval) {
-            clearInterval(state.interval);
-        }
-
-        updateStatus(true);
-        addLog('Scanner started', 'success');
-
-        // Run an immediate scan
-        scanForButtons();
-
-        // Then scan every 3 seconds
-        state.interval = setInterval(scanForButtons, 3000);
-    }
-
-    function stopScanning() {
-        if (state.interval) {
-            clearInterval(state.interval);
-            state.interval = null;
-        }
-        updateStatus(false);
-        addLog('Scanner stopped', 'warning');
-    }
-
-    function scanForButtons() {
-        // Since the webview is sandboxed, actual DOM scanning happens
-        // via the injected script in the main window.
-        // Here we just track the UI state and communicate with the extension.
-        if (!state.isRunning) { return; }
-
-        const time = new Date().toLocaleTimeString();
-        addLog('Scan cycle complete', 'info');
+    // ==================== TOGGLE STATE SYNC ====================
+    function sendToggleState() {
+        vscode.postMessage({
+            command: 'toggleUpdate',
+            toggles: {
+                yes: toggleYes.checked,
+                run: toggleRun.checked,
+                retry: toggleRetry.checked
+            }
+        });
     }
 
     // ==================== EVENT LISTENERS ====================
     toggleBtn.addEventListener('click', function () {
         if (state.isRunning) {
-            stopScanning();
             vscode.postMessage({ command: 'stop' });
+            addLog('Stopping scanner...', 'warning');
         } else {
-            vscode.postMessage({ command: 'inject' });
-            startScanning();
-            addLog('Script injected via clipboard', 'success');
+            // Send current toggle states before starting
+            sendToggleState();
+            vscode.postMessage({ command: 'start' });
+            addLog('Starting scanner...', 'info');
         }
     });
-
-
 
     clearLogBtn.addEventListener('click', function () {
         logContainer.innerHTML = '';
         addLog('Log cleared', 'info');
+    });
+
+    // Toggle checkboxes — sync state to extension host
+    toggleYes.addEventListener('change', function () {
+        addLog('Yes: ' + (toggleYes.checked ? 'ON' : 'OFF'), toggleYes.checked ? 'success' : 'warning');
+        sendToggleState();
+    });
+    toggleRun.addEventListener('change', function () {
+        addLog('Run: ' + (toggleRun.checked ? 'ON' : 'OFF'), toggleRun.checked ? 'success' : 'warning');
+        sendToggleState();
+    });
+    toggleRetry.addEventListener('change', function () {
+        addLog('Retry: ' + (toggleRetry.checked ? 'ON' : 'OFF'), toggleRetry.checked ? 'success' : 'warning');
+        sendToggleState();
     });
 
     // ==================== MESSAGE HANDLER ====================
@@ -124,24 +115,41 @@
     window.addEventListener('message', function (event) {
         const message = event.data;
         switch (message.command) {
+            case 'started':
+                updateStatus(true);
+                addLog('Scanner ACTIVE — scanning main window DOM', 'success');
+                break;
+
+            case 'stopped':
+                updateStatus(false);
+                addLog('Scanner stopped', 'warning');
+                break;
+
             case 'toggleAutoClick':
                 if (message.isRunning) {
-                    startScanning();
+                    vscode.postMessage({ command: 'start' });
                 } else {
-                    stopScanning();
+                    vscode.postMessage({ command: 'stop' });
                 }
                 break;
+
             case 'stop':
-                stopScanning();
-                break;
-            case 'updateClicks':
-                state.totalClicks = message.count || 0;
-                updateCounts();
-                addLog('Clicked button: ' + (message.buttonText || 'unknown'), 'click');
+                updateStatus(false);
+                addLog('Scanner stopped by command', 'warning');
                 break;
 
             case 'scanResult':
-                addLog('Found ' + message.buttonCount + ' button(s) in ' + message.iframeCount + ' frame(s)', 'info');
+                if (message.clicked > 0) {
+                    state.totalClicks += message.clicked;
+                    clickCount.textContent = state.totalClicks;
+
+                    // Log each clicked button
+                    for (var i = 0; i < message.found.length; i++) {
+                        var btn = message.found[i];
+                        addLog('🖱️ Clicked: "' + btn.text + '" (' + btn.source + ')', 'click');
+                    }
+                }
+                // No log for empty scan cycles — user doesn't need to see them
                 break;
         }
     });
@@ -167,22 +175,38 @@
         });
     });
 
-    // ==================== BUTTON TOGGLES ====================
-    var toggleYes = document.getElementById('toggle-yes');
-    var toggleRun = document.getElementById('toggle-run');
-    var toggleRetry = document.getElementById('toggle-retry');
+    // ==================== SCAN INTERVAL CONTROL ====================
+    var intervalInput = document.getElementById('interval-input');
+    var intervalDown = document.getElementById('interval-down');
+    var intervalUp = document.getElementById('interval-up');
 
-    toggleYes.addEventListener('change', function () {
-        addLog('Yes: ' + (toggleYes.checked ? 'ON' : 'OFF'), toggleYes.checked ? 'success' : 'warning');
+    function setIntervalValue(val) {
+        val = Math.max(0.5, Math.min(10000, Math.round(val * 2) / 2)); // snap to 0.5 step
+        state.intervalSec = val;
+        intervalInput.value = val;
+        scanInfo.textContent = state.isRunning ? 'Scanning every ' + val + 's' : 'Stopped';
+        vscode.postMessage({ command: 'intervalChange', intervalMs: val * 1000 });
+    }
+
+    intervalDown.addEventListener('click', function () {
+        setIntervalValue((parseFloat(intervalInput.value) || 3) - 0.5);
     });
-    toggleRun.addEventListener('change', function () {
-        addLog('Run: ' + (toggleRun.checked ? 'ON' : 'OFF'), toggleRun.checked ? 'success' : 'warning');
+
+    intervalUp.addEventListener('click', function () {
+        setIntervalValue((parseFloat(intervalInput.value) || 3) + 0.5);
     });
-    toggleRetry.addEventListener('change', function () {
-        addLog('Retry: ' + (toggleRetry.checked ? 'ON' : 'OFF'), toggleRetry.checked ? 'success' : 'warning');
+
+    intervalInput.addEventListener('change', function () {
+        setIntervalValue(parseFloat(intervalInput.value) || 3);
+    });
+
+    intervalInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            setIntervalValue(parseFloat(intervalInput.value) || 3);
+        }
     });
 
     // ==================== INIT ====================
     updateStatus(false);
-    addLog('Ready. Click "Inject Script" to start.', 'info');
+    addLog('Ready. Click "Start Auto" to begin scanning.', 'info');
 })();
