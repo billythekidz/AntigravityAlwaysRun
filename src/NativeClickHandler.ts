@@ -156,12 +156,15 @@ using System.Runtime.InteropServices;
 public class W2 {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
     [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte sc, uint flags, UIntPtr ex);
     public const uint KEYUP = 0x0002;
     public const byte VK_RETURN = 0x0D;
     public const byte VK_CTRL   = 0x11;
     public const byte VK_A      = 0x41;
     public const byte VK_V      = 0x56;
+    public const int  SW_SHOW    = 5;   // show without resize
+    public const int  SW_RESTORE = 9;   // restore from minimized
 }
 "@
 
@@ -220,14 +223,18 @@ if (-not $devWin) {
     }
     $diag += "Main window ($bestCount elems): '$($agWin.GetCurrentPropertyValue($UIA::NameProperty))'"
 
-    # Focus it
+    # Focus it — only SW_RESTORE if actually minimized, else SW_SHOW (no resize)
     $hWnd = [IntPtr]$agWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
-    [W2]::ShowWindow($hWnd, 9) | Out-Null
+    if ([W2]::IsIconic($hWnd)) {
+        [W2]::ShowWindow($hWnd, [W2]::SW_RESTORE) | Out-Null
+    } else {
+        [W2]::ShowWindow($hWnd, [W2]::SW_SHOW) | Out-Null
+    }
     [W2]::SetForegroundWindow($hWnd) | Out-Null
     Start-Sleep -Milliseconds 600
 
-    # Open Command Palette, paste command name via clipboard (faster + no char-by-char issues)
-    [System.Windows.Forms.Clipboard]::SetText('Toggle Developer Tools')
+    # Open Command Palette, paste command via Set-Clipboard (STA-safe)
+    Set-Clipboard -Value 'Toggle Developer Tools'
     Start-Sleep -Milliseconds 200
     [System.Windows.Forms.SendKeys]::SendWait('^+p')
     Start-Sleep -Milliseconds 700
@@ -274,42 +281,27 @@ $diag += "Clipboard verified OK ($($verify.Length) chars)"
 
 # ── Step 3: Focus DevTools window ────────────────────────────────────────
 $hWnd = [IntPtr]$devWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
-[W2]::ShowWindow($hWnd, 9) | Out-Null     # SW_RESTORE
+if ([W2]::IsIconic($hWnd)) {
+    [W2]::ShowWindow($hWnd, [W2]::SW_RESTORE) | Out-Null
+} else {
+    [W2]::ShowWindow($hWnd, [W2]::SW_SHOW) | Out-Null
+}
 [W2]::SetForegroundWindow($hWnd) | Out-Null
 Start-Sleep -Milliseconds 400
 
-# ── Step 4: Open console tab (Ctrl+Shift+J → Console panel) ──────────────
+# ── Step 4: Open console tab (Ctrl+Shift+J → Console panel + focuses input)
 [System.Windows.Forms.SendKeys]::SendWait('^+j')
-Start-Sleep -Milliseconds 600
+Start-Sleep -Milliseconds 800
 
-# ── Step 5: Click near bottom of DevTools to focus console input ──────────
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-public class Mouse2 {
-    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
-    [DllImport("user32.dll")] public static extern void SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] public static extern void mouse_event(int f, int x, int y, int d, int e);
-    public struct RECT { public int L,T,R,B; }
-    public const int MOUSEEVENTF_LEFTDOWN = 0x02;
-    public const int MOUSEEVENTF_LEFTUP   = 0x04;
-}
-"@
-$rect = New-Object Mouse2+RECT
-[Mouse2]::GetWindowRect($hWnd, [ref]$rect) | Out-Null
-$cx = [int](($rect.L + $rect.R) / 2)
-$cy = [int]($rect.B - 40)   # near bottom = console input row
-[Mouse2]::SetCursorPos($cx, $cy)
-[Mouse2]::mouse_event([Mouse2]::MOUSEEVENTF_LEFTDOWN, $cx, $cy, 0, 0)
-Start-Sleep -Milliseconds 50
-[Mouse2]::mouse_event([Mouse2]::MOUSEEVENTF_LEFTUP,   $cx, $cy, 0, 0)
+# ── Step 5: Re-focus DevTools explicitly before paste ────────────────────
+[W2]::SetForegroundWindow($hWnd) | Out-Null
 Start-Sleep -Milliseconds 300
 
 # ── Step 6: Clear any existing text, paste script ─────────────────────────
 [System.Windows.Forms.SendKeys]::SendWait('^a')
 Start-Sleep -Milliseconds 200
 [System.Windows.Forms.SendKeys]::SendWait('^v')
-Start-Sleep -Milliseconds 1000   # large script — give it time to render
+Start-Sleep -Milliseconds 1000   # large script — give time to render
 
 # ── Step 7: Execute ───────────────────────────────────────────────────────
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
