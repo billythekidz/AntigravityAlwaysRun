@@ -36,14 +36,18 @@ DIAG=()
 SCRIPT=$(echo '${encodedScript}' | base64 -d)
 DIAG+=("Script decoded: \${#SCRIPT} chars")
 
+# Delete stale config file (its recreation = injection signal)
+CFG_PATH="$TMPDIR/agy-config.json"
+if [ -f "$CFG_PATH" ]; then rm -f "$CFG_PATH"; fi
+
 # Step 1: Open DevTools via command palette
 echo -n "Toggle Developer Tools" | pbcopy
 sleep 0.3
 
-# Activate Code/Antigravity
+# Activate Antigravity
 osascript << 'ASCRIPT'
 tell application "System Events"
-  set procs to (every process whose name contains "Antigravity" or name contains "code")
+  set procs to (every process whose name contains "Antigravity")
   if (count of procs) > 0 then set frontmost of (first item of procs) to true
 end tell
 ASCRIPT
@@ -63,23 +67,36 @@ sleep 2.5
 # Step 2: Paste the script into DevTools console
 printf '%s' "$SCRIPT" | pbcopy
 sleep 0.3
-# Cmd+Shift+J => focus console
-osascript -e 'tell application "System Events" to key code 38 using {command down, shift down}'
-sleep 0.4
-# Cmd+A select all, Cmd+V paste
+# Cmd+Shift+P => DevTools command menu, type 'console'
+osascript -e 'tell application "System Events" to key code 35 using {command down, shift down}'
+sleep 0.8
+osascript -e 'tell application "System Events" to keystroke "console"'
+sleep 0.6
+osascript -e 'tell application "System Events" to key code 36'
+sleep 1.0
+# Click console input area then Cmd+A, Cmd+V, Return
 osascript -e 'tell application "System Events" to key code 0 using command down'
 sleep 0.1
 osascript -e 'tell application "System Events" to key code 9 using command down'
 sleep 0.3
-# Return => execute
 osascript -e 'tell application "System Events" to key code 36'
 DIAG+=("Script pasted and executed")
 
-# Step 3: Close DevTools (toggle again)
-sleep 0.8
-osascript -e 'tell application "System Events" to key code 35 using {command down, shift down}'
-osascript -e 'tell application "System Events" to key code 9 using command down'  # paste (re-opens toggle)
-osascript -e 'tell application "System Events" to key code 36'
+# Step 3: Poll for injection signal (agy-config.json)
+MAX_WAIT=20
+WAITED=0
+while [ \$WAITED -lt \$MAX_WAIT ]; do
+  if [ -f "$CFG_PATH" ]; then
+    DIAG+=("Injection confirmed after \${WAITED}s")
+    break
+  fi
+  sleep 0.5
+  WAITED=\$((WAITED + 1))
+done
+if [ \$WAITED -ge \$MAX_WAIT ]; then DIAG+=("Warning: no signal in \${MAX_WAIT}s"); fi
+
+# Step 4: Close DevTools via Cmd+Shift+I toggle
+osascript -e 'tell application "System Events" to key code 34 using {command down, shift down}'
 DIAG+=("DevTools closed")
 
 DIAG_JSON=$(printf '"%s",' "\${DIAG[@]}" | sed 's/,$//')
@@ -100,10 +117,14 @@ clip_copy_data() { printf '%s' "$1" | xclip -selection clipboard 2>/dev/null || 
 SCRIPT=$(echo '${encodedScript}' | base64 -d)
 DIAG+=("Script decoded: \${#SCRIPT} chars")
 
-# Step 1: focus main Code/Antigravity window
-WIN=$(xdotool search --name "Antigravity\\|code" 2>/dev/null | head -1)
+# Delete stale config file (its recreation = injection signal)
+CFG_PATH="/tmp/agy-config.json"
+if [ -f "$CFG_PATH" ]; then rm -f "$CFG_PATH"; fi
+
+# Step 1: focus main Antigravity window
+WIN=$(xdotool search --name "Antigravity" 2>/dev/null | head -1)
 if [ -z "$WIN" ]; then
-  echo '{"clicked":0,"found":[],"diag":[],"error":"Window not found"}'
+  echo '{"clicked":0,"found":[],"diag":[],"error":"Antigravity window not found"}'
   exit 0
 fi
 xdotool windowfocus --sync "$WIN"
@@ -121,11 +142,16 @@ xdotool key Return
 DIAG+=("Command palette: pasted Toggle Developer Tools + Enter")
 sleep 2.5
 
-# Step 2: Paste script into DevTools console
+# Step 2: Navigate to Console via DevTools command menu
 clip_copy_data "$SCRIPT"
 sleep 0.3
-xdotool key ctrl+shift+j   # focus console panel
-sleep 0.4
+xdotool key ctrl+shift+p   # DevTools command menu
+sleep 0.8
+xdotool type --delay 30 'console'
+sleep 0.6
+xdotool key Return
+sleep 1.0
+# Select all + paste + execute
 xdotool key ctrl+a
 sleep 0.1
 xdotool key ctrl+v
@@ -133,8 +159,21 @@ sleep 0.3
 xdotool key Return
 DIAG+=("Script pasted and executed")
 
-sleep 0.8
-xdotool key ctrl+shift+i   # close DevTools
+# Step 3: Poll for injection signal (agy-config.json)
+MAX_WAIT=20
+WAITED=0
+while [ \$WAITED -lt \$MAX_WAIT ]; do
+  if [ -f "$CFG_PATH" ]; then
+    DIAG+=("Injection confirmed after \${WAITED}s")
+    break
+  fi
+  sleep 0.5
+  WAITED=\$((WAITED + 1))
+done
+if [ \$WAITED -ge \$MAX_WAIT ]; then DIAG+=("Warning: no signal in \${MAX_WAIT}s"); fi
+
+# Step 4: Close DevTools via Ctrl+Shift+I toggle
+xdotool key ctrl+shift+i
 DIAG+=("DevTools closed")
 
 DIAG_JSON=$(printf '"%s",' "\${DIAG[@]}" | sed 's/,$//')
@@ -360,7 +399,6 @@ try {
      * Send stop command to DevTools console: clears the auto-accept interval.
      */
     async stopDevToolsScript(): Promise<void> {
-        if (this.platform !== 'win32') { return; }
         const stopScript = Buffer.from('if(window.__agyTimer){clearInterval(window.__agyTimer);window.__agyTimer=null;console.log("[AlwaysRun] Stopped");}').toString('base64');
         const injectStop = await this.openDevToolsAndInject(stopScript);
         console.log('[NativeClickHandler] Stop result:', injectStop.diag?.join(' | '));
