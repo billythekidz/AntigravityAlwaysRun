@@ -53,38 +53,67 @@ const PROFILES: ProjectProfile[] = [
 ];
 
 class ProjectDetector {
-    static async detect(): Promise<ProjectProfile> {
-        const folders = vscode.workspace.workspaceFolders;
-        if (!folders || folders.length === 0) { return PROFILES[3]; } // generic
+    /**
+     * Detect project type from a VS Code window title.
+     * Window titles look like: "MyProjectName - Visual Studio Code" or
+     * "MyProjectName (Workspace) - Antigravity IDE"
+     */
+    static detectFromTitle(windowTitle: string): ProjectProfile & { projectName: string } {
+        // Extract project name: everything before the first " - " or " ("
+        const projectName = windowTitle
+            .replace(/ - (Visual Studio Code|Antigravity IDE|Code).*$/i, '')
+            .replace(/\s*\(.*?\)\s*$/g, '')
+            .trim();
 
+        // Try to match against known project patterns via workspace folders
+        const folders = vscode.workspace.workspaceFolders || [];
         for (const folder of folders) {
             const root = folder.uri.fsPath;
+            const folderName = path.basename(root);
 
-            // Unity: has Assets/ directory
-            if (fs.existsSync(path.join(root, 'Assets'))) {
-                return PROFILES[0];
-            }
-
-            // Nakama: has nakama-runtime in package.json dependencies
-            const pkgPath = path.join(root, 'package.json');
-            if (fs.existsSync(pkgPath)) {
-                try {
-                    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-                    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-                    if (deps['nakama-runtime'] || deps['@heroiclabs/nakama-runtime']) {
-                        return PROFILES[1];
-                    }
-                } catch {}
-            }
-
-            // Dashboard: has next.config.* file
-            const files = fs.existsSync(root) ? fs.readdirSync(root) : [];
-            if (files.some(f => f.startsWith('next.config'))) {
-                return PROFILES[2];
+            // If the window title contains this folder name
+            if (windowTitle.toLowerCase().includes(folderName.toLowerCase())) {
+                return { ...ProjectDetector._detectFromPath(root), projectName: folderName };
             }
         }
 
-        return PROFILES[3]; // generic
+        // Fallback: return generic with inferred project name from title
+        return { ...PROFILES[3], projectName: projectName || 'Unknown' };
+    }
+
+    static _detectFromPath(root: string): ProjectProfile {
+        const hasAssets = fs.existsSync(path.join(root, 'Assets'));
+        const hasProjectSettings = fs.existsSync(path.join(root, 'ProjectSettings'));
+        if (hasAssets && hasProjectSettings) { return PROFILES[0]; }
+
+        const pkgPath = path.join(root, 'package.json');
+        if (fs.existsSync(pkgPath)) {
+            try {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+                const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+                if (deps['nakama-runtime'] || deps['@heroiclabs/nakama-runtime']) { return PROFILES[1]; }
+            } catch {}
+        }
+
+        try {
+            const files = fs.readdirSync(root);
+            if (files.some(f => f.toLowerCase().startsWith('next.config'))) { return PROFILES[2]; }
+        } catch {}
+
+        return PROFILES[3];
+    }
+
+    /**
+     * Detect from current workspace folders (fallback for initial load).
+     */
+    static async detect(): Promise<ProjectProfile & { projectName: string }> {
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders || folders.length === 0) {
+            return { ...PROFILES[3], projectName: 'Unknown' };
+        }
+        const root = folders[0].uri.fsPath;
+        const folderName = path.basename(root);
+        return { ...ProjectDetector._detectFromPath(root), projectName: folderName };
     }
 }
 
@@ -335,7 +364,8 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             return JSON.stringify({
                 clicked: clicked,
                 found: foundButtons,
-                scanned: scannedFrames
+                scanned: scannedFrames,
+                windowTitle: document.title
             });
         })()`;
     }
@@ -396,7 +426,17 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
 
             if (resultStr) {
                 const result = JSON.parse(resultStr);
-                
+
+                // Update project profile based on the title of the scanned window
+                if (result.windowTitle) {
+                    const detected = ProjectDetector.detectFromTitle(result.windowTitle);
+                    if (detected.id !== this._profile.id || (detected as any).projectName !== (this._profile as any).projectName) {
+                        this._profile = detected;
+                        this._toggles = { ...detected.defaultToggles };
+                        this._postToWebview({ command: 'projectProfile', profile: detected });
+                    }
+                }
+
                 this._postToWebview({
                     command: 'scanResult',
                     clicked: result.clicked,
@@ -405,11 +445,10 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 });
 
                 if (result.clicked > 0) {
-                    console.log(`[Always Run] Clicked ${result.clicked} button(s):`, 
+                    console.log(`[Always Run] Clicked ${result.clicked} button(s):`,
                         result.found.map((b: any) => b.text).join(', '));
                 }
             } else {
-                // Null means executeJavaScript failed — tell the webview
                 this._postToWebview({
                     command: 'scanError',
                     message: 'Could not access the editor window. Make sure the Antigravity IDE is in focus.'

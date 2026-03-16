@@ -168,7 +168,7 @@
                 toggleRun.checked = p.defaultToggles.run;
                 toggleRetry.checked = p.defaultToggles.retry;
                 sendToggleState();
-                addLog('🔍 Project detected: ' + p.emoji + ' ' + p.label, 'info');
+                addLog('🔍 Project detected: ' + p.emoji + ' ' + p.label + (p._workspace ? ' (' + p._workspace.split('\\').pop() + ')' : ''), 'info');
                 break;
         }
     });
