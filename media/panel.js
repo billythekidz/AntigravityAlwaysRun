@@ -225,6 +225,12 @@
         }
     });
 
+    var manualStartBtn = document.getElementById('manual-start-btn');
+    manualStartBtn.addEventListener('click', function () {
+        vscode.postMessage({ command: 'manualStart' });
+        addLog('▶️ Manual Start — server started, paste script manually', 'success');
+    });
+
     setupOpenBtn.addEventListener('click', function () {
         vscode.postMessage({ command: 'openDevTools' });
         addLog('🔧 Opening DevTools...', 'info');

@@ -117,6 +117,9 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                         vscode.env.clipboard.writeText(message.script);
                     }
                     break;
+                case 'manualStart':
+                    this._manualStart();
+                    break;
             }
         });
     }
@@ -440,6 +443,68 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    /**
+     * Manual Start: starts ConfigServer + sets running state but skips auto-injection.
+     * Generates the inject script and sends it to the Manual Setup panel code block.
+     * Polls for signal file to auto-confirm when user manually pastes.
+     */
+    public _manualStart() {
+        if (this._isRunning && this._scriptInjected) {
+            this._postToWebview({ command: 'diagLog', text: '⚠️ Already running with script injected', logType: 'warning' });
+            return;
+        }
+
+        this._isRunning = true;
+        this._syncConfig();
+        this._postToWebview({ command: 'started' });
+        this._postToWebview({ command: 'diagLog', text: '▶️ Manual Start — server starting, waiting for manual injection...', logType: 'info' });
+
+        const matchers: string[] = [];
+        if (this._toggles.yes)    { matchers.push('yes'); }
+        if (this._toggles.run)    { matchers.push('run'); }
+        if (this._toggles.retry)  { matchers.push('retry'); }
+        if (this._toggles.accept) { matchers.push('accept'); }
+        const liveCfg = {
+            active: true,
+            matchers,
+            excludes: DEFAULT_EXCLUDES,
+            intervalMs: this._scanIntervalMs
+        };
+
+        this._configServer.update(liveCfg);
+        this._configServer.onClicked((data: any) => {
+            this._postToWebview({
+                command: 'scanResult',
+                clicked: 1,
+                found: [{ text: data.text || '?', source: data.source || 'unknown' }]
+            });
+        });
+
+        this._configServer.start().then(port => {
+            const script = this._buildInjectScript(port, liveCfg);
+            // Send script to Manual Setup code block
+            this._postToWebview({ command: 'manualScript', script });
+            this._postToWebview({ command: 'diagLog', text: '📋 Script ready — copy from Manual Setup panel and paste into DevTools Console', logType: 'info' });
+            this._postToWebview({ command: 'diagLog', text: '🔌 Config server on port ' + port, logType: 'info' });
+
+            // Delete stale signal file and poll for manual injection confirmation
+            const cfgPath = path.join(os.tmpdir(), 'agy-config.json');
+            try { fs.unlinkSync(cfgPath); } catch {}
+            this._pollForSignal(cfgPath, 120).then(confirmed => {
+                if (confirmed) {
+                    this._scriptInjected = true;
+                    this._postToWebview({ command: 'diagLog', text: '✅ Injection confirmed! Auto-clicking active.', logType: 'success' });
+                    // Auto-close DevTools
+                    vscode.commands.executeCommand('workbench.action.toggleDevTools');
+                }
+            });
+        }).catch(err => {
+            this._postToWebview({ command: 'scanError', message: 'ConfigServer failed: ' + err.message });
+            this._isRunning = false;
+            this._postToWebview({ command: 'stopped' });
+        });
+    }
+
     public stopAutoScan() {
         this._isRunning = false;
         this._syncConfig();   // write active=false — script pauses within 1s
@@ -516,6 +581,11 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 <span class="warning-chevron collapsed" id="setup-chevron">▾</span>
             </div>
             <div class="setup-body hidden" id="setup-body">
+                <div style="margin-bottom:8px">
+                    <button class="btn btn-primary" id="manual-start-btn" style="width:100%;font-size:12px;padding:6px 12px">
+                        <span class="btn-icon">▶️</span> Manual Start (start server without auto-inject)
+                    </button>
+                </div>
                 <div class="setup-step">
                     <span class="step-num">1</span>
                     <span class="step-text">Open DevTools Console:<br>
