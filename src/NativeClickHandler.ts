@@ -283,13 +283,17 @@ if ([W2]::GetForegroundWindow() -ne $hWnd) {
     Start-Sleep -Milliseconds 500
 }
 
-# ── Step 4: Switch to Console tab (Ctrl+Shift+J) ─────────────────────────
-# Safe now — DevTools is verified in foreground before sending keys
-[System.Windows.Forms.SendKeys]::SendWait('^+j')
-Start-Sleep -Milliseconds 800
-# Re-focus after tab switch (SendKeys may have shifted focus briefly)
-Invoke-ForceFocus $hWnd
-Start-Sleep -Milliseconds 300
+# ── Step 4: Navigate to Console tab via DevTools Command Menu ────────────
+# Using Ctrl+Shift+P (DevTools command menu, NOT VS Code's) → type 'console'
+# → 'Show Console panel' appears first → Enter.
+# This is IDEMPOTENT: works from any tab, safe when already on Console.
+# Ctrl+Shift+J was a TOGGLE and broke when user was already on Console tab.
+[System.Windows.Forms.SendKeys]::SendWait('^+p')
+Start-Sleep -Milliseconds 600
+[System.Windows.Forms.SendKeys]::SendWait('console')
+Start-Sleep -Milliseconds 400
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+Start-Sleep -Milliseconds 600
 
 # ── Step 5: Paste script — Escape cancels any existing input, then Ctrl+V ─
 [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
