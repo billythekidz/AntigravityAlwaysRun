@@ -24,6 +24,7 @@ export class ConfigServer {
     };
 
     private _onSignal: (() => void) | null = null;
+    private _onClicked: ((data: any) => void) | null = null;
 
     async start(): Promise<number> {
         if (this._server) { return this._port; }  // already running
@@ -45,6 +46,21 @@ export class ConfigServer {
                     res.writeHead(200, { 'Content-Type': 'text/plain' });
                     res.end('ok');
                     if (this._onSignal) { this._onSignal(); }
+                    return;
+                }
+
+                // POST /clicked — injected script reports each button click
+                if (req.method === 'POST' && req.url === '/clicked') {
+                    let body = '';
+                    req.on('data', (chunk: string) => body += chunk);
+                    req.on('end', () => {
+                        res.writeHead(200, { 'Content-Type': 'text/plain' });
+                        res.end('ok');
+                        try {
+                            const data = JSON.parse(body);
+                            if (this._onClicked) { this._onClicked(data); }
+                        } catch {}
+                    });
                     return;
                 }
 
@@ -74,6 +90,9 @@ export class ConfigServer {
 
     /** Register a one-shot callback for when the injected script signals. */
     onSignal(cb: () => void) { this._onSignal = cb; }
+
+    /** Register callback for click reports from injected script. */
+    onClicked(cb: (data: any) => void) { this._onClicked = cb; }
 
     update(patch: Partial<ScanConfig>) {
         Object.assign(this._config, patch);

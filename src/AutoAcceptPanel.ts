@@ -221,6 +221,8 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
           b.click();
           setTimeout(function(){try{delete b.dataset.agyClicked;}catch(e){}}, 5000);
           console.log('[AlwaysRun] Clicked:', txt.substring(0,50), '|', label);
+          // Report click to extension host for panel UI count
+          fetch(SERVER + '/clicked', {method:'POST', body:JSON.stringify({text:txt.substring(0,50),source:label})}).catch(function(){});
         }
       }
     } catch(e) {}
@@ -228,6 +230,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
 
   function scanAll() {
     if (!window.__agyConfig.active) { return; }
+    console.log('[AlwaysRun] Scanning... matchers:', window.__agyConfig.matchers.join(','));
     scanDoc(document, 'main');
     document.querySelectorAll('iframe').forEach(function(f,i){
       try{scanDoc(f.contentDocument||f.contentWindow.document,'iframe-'+i);}catch(e){}
@@ -283,6 +286,14 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         };
 
         this._configServer.update(liveCfg);
+        // Wire up click reporting: injected JS → POST /clicked → panel UI
+        this._configServer.onClicked((data: any) => {
+            this._postToWebview({
+                command: 'scanResult',
+                clicked: 1,
+                found: [{ text: data.text || '?', source: data.source || 'unknown' }]
+            });
+        });
         this._configServer.start().then(port => {
             const script = this._buildInjectScript(port, liveCfg);
             const encoded = Buffer.from(script).toString('base64');
