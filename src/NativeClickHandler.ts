@@ -180,13 +180,6 @@ $PC      = [System.Windows.Automation.PropertyCondition]
 $diag    = @()
 $projectName = '${projectName}'
 
-# ── Config file signal ────────────────────────────────────────────────────
-# Delete before injection — injected JS will recreate it as confirmation.
-# PowerShell polls for the file to appear instead of using a blind timeout.
-$cfgPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), 'agy-config.json')
-if (Test-Path $cfgPath) { Remove-Item $cfgPath -Force -ErrorAction SilentlyContinue }
-$diag += "Config deleted — will be recreated by injected script"
-
 function Find-Window([string]$titlePattern) {
     $root    = $UIA::RootElement
     $winCond = New-Object $PC($UIA::ControlTypeProperty, $CT::Window)
@@ -213,6 +206,10 @@ function Invoke-ForceFocus([IntPtr]$hWnd) {
 $scriptBytes   = [System.Convert]::FromBase64String('${encodedScript}')
 $scriptContent = [System.Text.Encoding]::UTF8.GetString($scriptBytes)
 $diag += "Script decoded: $($scriptContent.Length) chars"
+
+# ── Delete stale config file (its recreation = injection signal) ──────────
+$cfgDel = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), 'agy-config.json')
+if (Test-Path $cfgDel) { Remove-Item $cfgDel -Force -ErrorAction SilentlyContinue }
 
 # ── Step 1: Open DevTools if not already open ─────────────────────────────
 $devWin = Find-Window 'Developer Tools - vscode-file'
@@ -332,19 +329,19 @@ Start-Sleep -Milliseconds 2000    # large script — wait to fully render
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 $diag += "Script pasted and executed!"
 
-# ── Wait for injected script to confirm (polls config file) ──────────────
-# The injected JS writes the config file after init — this is our signal.
-# No fixed sleep — close as soon as we know the script is running.
-$maxSec = 15; $waited = 0
-while ($waited -lt $maxSec) {
+# Poll for injection confirmation: injected JS calls POST /signal on ConfigServer,
+# which writes agy-config.json. We deleted it before injection so its appearance = success.
+$cfgPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), 'agy-config.json')
+$maxWait = 20; $w = 0
+while ($w -lt $maxWait) {
     if (Test-Path $cfgPath) {
-        $diag += "Injection confirmed! Config recreated after $waited s"
+        $diag += "Injection confirmed (config file appeared after $w s)"
         break
     }
-    Start-Sleep -Milliseconds 300
-    $waited += 0.3
+    Start-Sleep -Milliseconds 500
+    $w += 0.5
 }
-if ($waited -ge $maxSec) { $diag += "Warning: no confirmation in $maxSec s — closing anyway" }
+if ($w -ge $maxWait) { $diag += "Warning: no signal in $maxWait s" }
 try {
     $wp = $devWin.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
     $wp.Close()

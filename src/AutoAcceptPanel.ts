@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { NativeClickHandler } from './NativeClickHandler';
+import { ConfigServer } from './ConfigServer';
 
 
 /** Returns the workspace folder name (used as badge label and config key). */
@@ -27,6 +28,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
 
     private _native: NativeClickHandler;
     private _configPath: string;
+    private _configServer: ConfigServer;
     private _scriptInjected = false;
 
     private _toggles = { yes: true, run: true, retry: true, accept: true };
@@ -34,6 +36,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     constructor(private readonly _extensionUri: vscode.Uri) {
         this._native = new NativeClickHandler();
         this._configPath = path.join(os.tmpdir(), 'agy-config.json');
+        this._configServer = new ConfigServer();
     }
 
     public resolveWebviewView(
@@ -160,8 +163,9 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     // ==================== CORE: Temp-file Config + DevTools Injection ====================
 
     /**
-     * Write current panel state to os.tmpdir()/agy-config.json.
-     * The injected script reads this file every 1s via require('fs').
+     * Push current panel state to the ConfigServer (HTTP) and also write
+     * to agy-config.json as a fallback.
+     * The injected script reads config via fetch() from ConfigServer every 1s.
      */
     private _syncConfig() {
         const matchers: string[] = [];
@@ -175,6 +179,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             excludes:   DEFAULT_EXCLUDES,
             intervalMs: this._scanIntervalMs
         };
+        this._configServer.update(cfg);
         try { fs.writeFileSync(this._configPath, JSON.stringify(cfg), 'utf8'); } catch {}
     }
 
@@ -184,28 +189,25 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
      * - Scan runs at the user-configured interval (default 3s)
      * - Interval and active state both come from the file — no re-injection
      */
-    private _buildInjectScript(cfgPath: string, liveCfg: { active: boolean; matchers: string[]; excludes: string[]; intervalMs: number }): string {
-        const safePath = cfgPath.replace(/\\/g, '\\\\');
-        // Embed the live config so scanner works immediately even if require('fs') fails
+    private _buildInjectScript(serverPort: number, liveCfg: { active: boolean; matchers: string[]; excludes: string[]; intervalMs: number }): string {
         const cfgJson = JSON.stringify(liveCfg);
         return `(function() {
   if (window.__agyTimer)      { clearInterval(window.__agyTimer);      window.__agyTimer = null; }
   if (window.__agyCfgTimer)   { clearInterval(window.__agyCfgTimer);   window.__agyCfgTimer = null; }
 
-  var CFG_PATH = '${safePath}';
-  // Live config embedded at injection time — works even if fs polling fails
+  var SERVER = 'http://127.0.0.1:${serverPort}';
+  // Live config embedded at injection time
   window.__agyConfig = ${cfgJson};
   window.__agyScanInterval = window.__agyConfig.intervalMs || 3000;
 
-  // ── Config reader (every 1s, independent of scan interval) ───────────
+  // Config reader via HTTP (every 1s) — replaces require('fs') which is unavailable in renderer
   function readConfig() {
-    try {
-      var raw = require('fs').readFileSync(CFG_PATH, 'utf8');
-      Object.assign(window.__agyConfig, JSON.parse(raw));
-    } catch(e) {}
+    fetch(SERVER).then(function(r){return r.json();}).then(function(cfg){
+      Object.assign(window.__agyConfig, cfg);
+    }).catch(function(){});
   }
 
-  // ── DOM scanner ───────────────────────────────────────────────────────
+  // DOM scanner
   function scanDoc(doc, label) {
     try {
       var btns = doc.querySelectorAll('button');
@@ -235,7 +237,6 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     });}catch(e){};})(document,0);
     document.querySelectorAll('webview').forEach(function(w,i){try{scanDoc(w.contentDocument,'wv-'+i);}catch(e){}});
 
-    // Restart scan timer if interval changed
     var newMs = window.__agyConfig.intervalMs || 3000;
     if (newMs !== window.__agyScanInterval) {
       clearInterval(window.__agyTimer);
@@ -244,17 +245,14 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  // Config read: every 1s (cheap fs read, fast response to panel changes)
   readConfig();
   window.__agyCfgTimer = setInterval(readConfig, 1000);
-
-  // Scan: at user-configured interval
   window.__agyTimer = setInterval(scanAll, window.__agyScanInterval);
   scanAll();
-  console.log('[AlwaysRun] Injected. Config file:', CFG_PATH);
-  // Write config file — signals to PowerShell that injection succeeded.
-  // (PS deleted the file before inject and polls for it to reappear.)
-  try { require('fs').writeFileSync(CFG_PATH, JSON.stringify(window.__agyConfig), 'utf8'); } catch(e) {}
+  console.log('[AlwaysRun] Injected. Server:', SERVER);
+
+  // Signal extension host that injection succeeded (POST /signal)
+  fetch(SERVER + '/signal', {method:'POST'}).catch(function(){});
 })();`;
     }
 
@@ -265,13 +263,13 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         this._postToWebview({ command: 'started' });
 
         if (this._scriptInjected) {
-            // Script already running — file update is enough (read within 1s)
-            this._postToWebview({ command: 'diagLog', text: '▶ Resumed (config file updated)', logType: 'success' });
+            // Script already running — HTTP config update is enough (polled within 1s)
+            this._postToWebview({ command: 'diagLog', text: '\u25b6 Resumed (config server updated)', logType: 'success' });
             return;
         }
 
-        // First time: inject via DevTools
-        this._postToWebview({ command: 'diagLog', text: '💉 First start — injecting script via DevTools...', logType: 'info' });
+        // First time: start ConfigServer + inject via DevTools
+        this._postToWebview({ command: 'diagLog', text: '\ud83d\udc89 First start — injecting script via DevTools...', logType: 'info' });
         const matchers: string[] = [];
         if (this._toggles.yes)    { matchers.push('yes'); }
         if (this._toggles.run)    { matchers.push('run'); }
@@ -283,28 +281,36 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             excludes:   DEFAULT_EXCLUDES,
             intervalMs: this._scanIntervalMs
         };
-        const script = this._buildInjectScript(this._configPath, liveCfg);
-        const encoded = Buffer.from(script).toString('base64');
-        const projectName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
-        this._native.openDevToolsAndInject(encoded, projectName).then(result => {
-            if (result.error) {
-                this._postToWebview({ command: 'scanError', message: result.error });
+
+        this._configServer.update(liveCfg);
+        this._configServer.start().then(port => {
+            const script = this._buildInjectScript(port, liveCfg);
+            const encoded = Buffer.from(script).toString('base64');
+            const projectName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
+            this._native.openDevToolsAndInject(encoded, projectName).then(result => {
+                if (result.error) {
+                    this._postToWebview({ command: 'scanError', message: result.error });
+                    this._isRunning = false;
+                    this._syncConfig();
+                    this._postToWebview({ command: 'stopped' });
+                    return;
+                }
+                if (result.diag?.length) {
+                    for (const line of result.diag) {
+                        this._postToWebview({ command: 'diagLog', text: line, logType: 'info' });
+                    }
+                }
+                this._scriptInjected = true;
+                this._postToWebview({ command: 'diagLog', text: '\u2705 Injected — config via HTTP port ' + port, logType: 'success' });
+            }).catch(err => {
+                this._postToWebview({ command: 'scanError', message: err.message });
                 this._isRunning = false;
                 this._syncConfig();
                 this._postToWebview({ command: 'stopped' });
-                return;
-            }
-            if (result.diag?.length) {
-                for (const line of result.diag) {
-                    this._postToWebview({ command: 'diagLog', text: line, logType: 'info' });
-                }
-            }
-            this._scriptInjected = true;
-            this._postToWebview({ command: 'diagLog', text: '✅ Injected — reads config from ' + this._configPath, logType: 'success' });
+            });
         }).catch(err => {
-            this._postToWebview({ command: 'scanError', message: err.message });
+            this._postToWebview({ command: 'scanError', message: 'ConfigServer failed: ' + err.message });
             this._isRunning = false;
-            this._syncConfig();
             this._postToWebview({ command: 'stopped' });
         });
     }
