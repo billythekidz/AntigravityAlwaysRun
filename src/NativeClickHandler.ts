@@ -459,7 +459,7 @@ foreach ($win in $windows) {
 
     private _run(cmd: string, args: string[]): Promise<ClickResult> {
         return new Promise((resolve) => {
-            const child = execFile(cmd, args, { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+            const child = execFile(cmd, args, { timeout: 35000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
                 if (err && !stdout) { resolve({ clicked: 0, found: [], error: err.message }); return; }
                 // Skip any leading non-JSON text (PowerShell warnings etc.)
                 const jsonStart = stdout.indexOf('{');
@@ -476,7 +476,7 @@ foreach ($win in $windows) {
                     resolve({ clicked: 0, found: [], error: 'Parse error: ' + stdout.slice(0, 500) });
                 }
             });
-            setTimeout(() => { try { child.kill(); } catch {} }, 16000);
+            setTimeout(() => { try { child.kill(); } catch {} }, 36000);
         });
     }
 }
