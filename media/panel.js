@@ -164,8 +164,8 @@
             case 'projectProfile':
                 var p = message.profile;
                 if (projectBadge) {
-                    projectBadge.textContent = p.emoji + ' ' + p.label;
-                    projectBadge.title = p.description;
+                    projectBadge.textContent = p.projectName || p.label;
+                    projectBadge.title = p.projectName || p.description;
                 }
                 // Apply default toggles from profile
                 toggleYes.checked = p.defaultToggles.yes;

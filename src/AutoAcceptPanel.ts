@@ -1,143 +1,39 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { NativeClickHandler } from './NativeClickHandler';
 
-// ==================== PROJECT DETECTION ====================
 
-interface ProjectProfile {
-    id: string;
-    label: string;
-    emoji: string;
-    description: string;
-    defaultToggles: { yes: boolean; run: boolean; retry: boolean; };
-    extraMatchers?: string[];
-    excludeMatchers?: string[];
+/** Returns the workspace folder name (used as badge label and config key). */
+function getProjectName(): string {
+    const folders = vscode.workspace.workspaceFolders;
+    if (folders && folders.length > 0) {
+        return path.basename(folders[0].uri.fsPath);
+    }
+    return 'Unknown';
 }
 
-const PROFILES: ProjectProfile[] = [
-    {
-        id: 'unity',
-        label: 'Unity IDE',
-        emoji: '🎮',
-        description: 'Antigravity Unity project',
-        defaultToggles: { yes: true, run: true, retry: true },
-        extraMatchers: ['accept', 'confirm', 'allow', 'apply'],
-        excludeMatchers: ['always run', 'always allow', 'always deny']
-    },
-    {
-        id: 'nakama',
-        label: 'Game Server',
-        emoji: '⚙️',
-        description: 'Nakama server project',
-        defaultToggles: { yes: true, run: true, retry: false },
-        extraMatchers: ['deploy', 'apply', 'confirm'],
-        excludeMatchers: ['always run', 'always allow', 'always deny']
-    },
-    {
-        id: 'dashboard',
-        label: 'Dashboard',
-        emoji: '🖥',
-        description: 'Next.js dashboard project',
-        defaultToggles: { yes: true, run: false, retry: false },
-        extraMatchers: ['confirm', 'submit'],
-        excludeMatchers: ['always run', 'always allow', 'always deny']
-    },
-    {
-        id: 'generic',
-        label: 'Generic',
-        emoji: '◆',
-        description: 'No specific project detected',
-        defaultToggles: { yes: true, run: true, retry: true },
-        excludeMatchers: ['always run', 'always allow', 'always deny']
-    }
-];
+/** Fixed exclude list — same for all projects. */
+const DEFAULT_EXCLUDES = ['always run', 'always allow', 'always deny'];
 
-class ProjectDetector {
-    /**
-     * Detect project type from a VS Code window title.
-     * Window titles look like: "MyProjectName - Visual Studio Code" or
-     * "MyProjectName (Workspace) - Antigravity IDE"
-     */
-    static detectFromTitle(windowTitle: string): ProjectProfile & { projectName: string } {
-        // Extract project name: everything before the first " - " or " ("
-        const projectName = windowTitle
-            .replace(/ - (Visual Studio Code|Antigravity IDE|Code).*$/i, '')
-            .replace(/\s*\(.*?\)\s*$/g, '')
-            .trim();
-
-        // Try to match against known project patterns via workspace folders
-        const folders = vscode.workspace.workspaceFolders || [];
-        for (const folder of folders) {
-            const root = folder.uri.fsPath;
-            const folderName = path.basename(root);
-
-            // If the window title contains this folder name
-            if (windowTitle.toLowerCase().includes(folderName.toLowerCase())) {
-                return { ...ProjectDetector._detectFromPath(root), projectName: folderName };
-            }
-        }
-
-        // Fallback: return generic with inferred project name from title
-        return { ...PROFILES[3], projectName: projectName || 'Unknown' };
-    }
-
-    static _detectFromPath(root: string): ProjectProfile {
-        const hasAssets = fs.existsSync(path.join(root, 'Assets'));
-        const hasProjectSettings = fs.existsSync(path.join(root, 'ProjectSettings'));
-        if (hasAssets && hasProjectSettings) { return PROFILES[0]; }
-
-        const pkgPath = path.join(root, 'package.json');
-        if (fs.existsSync(pkgPath)) {
-            try {
-                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-                const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-                if (deps['nakama-runtime'] || deps['@heroiclabs/nakama-runtime']) { return PROFILES[1]; }
-            } catch {}
-        }
-
-        try {
-            const files = fs.readdirSync(root);
-            if (files.some(f => f.toLowerCase().startsWith('next.config'))) { return PROFILES[2]; }
-        } catch {}
-
-        return PROFILES[3];
-    }
-
-    /**
-     * Detect from current workspace folders (fallback for initial load).
-     */
-    static async detect(): Promise<ProjectProfile & { projectName: string }> {
-        const folders = vscode.workspace.workspaceFolders;
-        if (!folders || folders.length === 0) {
-            return { ...PROFILES[3], projectName: 'Unknown' };
-        }
-        const root = folders[0].uri.fsPath;
-        const folderName = path.basename(root);
-        return { ...ProjectDetector._detectFromPath(root), projectName: folderName };
-    }
-}
 
 export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'antigravity-always-run.panel';
 
     private _view?: vscode.WebviewView;
     private _isRunning = false;
-    private _scanTimer: ReturnType<typeof setInterval> | null = null;
-    private _scanIntervalMs = 3000; // default 3s
-    private _profile: ProjectProfile = PROFILES[3]; // default: generic
-    private _cdp!: NativeClickHandler;
-    private _firstScanDone = false;
+    private _scanIntervalMs = 3000;
 
-    // Toggle states for which buttons to auto-click
-    private _toggles = {
-        yes: true,
-        run: true,
-        retry: true
-    };
+    private _native: NativeClickHandler;
+    private _configPath: string;
+    private _scriptInjected = false;
+
+    private _toggles = { yes: true, run: true, retry: true };
 
     constructor(private readonly _extensionUri: vscode.Uri) {
-        this._cdp = new NativeClickHandler();
+        this._native = new NativeClickHandler();
+        this._configPath = path.join(os.tmpdir(), 'agy-config.json');
     }
 
     public resolveWebviewView(
@@ -157,12 +53,8 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
-        // Detect the project and send the profile to the webview
-        ProjectDetector.detect().then(profile => {
-            this._profile = profile;
-            this._toggles = { ...profile.defaultToggles };
-            this._postToWebview({ command: 'projectProfile', profile });
-        });
+        // Send project name (folder name) to badge
+        this._postToWebview({ command: 'projectProfile', profile: { projectName: getProjectName() } });
 
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage((message) => {
@@ -175,18 +67,11 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'toggleUpdate':
                     this._toggles = message.toggles;
-                    console.log('[Always Run] Toggles updated:', this._toggles);
-                    // If running: push live config update to the injected script
-                    if (this._isRunning) {
-                        this._pushConfigUpdate();
-                    }
+                    this._syncConfig();  // push update to config server immediately
                     break;
                 case 'intervalChange':
                     this._scanIntervalMs = Math.max(500, Math.min(10000000, message.intervalMs));
-                    console.log(`[Always Run] Scan interval: ${this._scanIntervalMs}ms`);
-                    if (this._isRunning) {
-                        this._restartScanTimer();
-                    }
+                    this._syncConfig();  // script picks up new interval on next tick
                     break;
                 case 'diagnose':
                     this._runDiagnosis();
@@ -270,115 +155,123 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         this.startAutoScan();
     }
 
-    // ==================== CORE: DevTools Console Injection ====================
+    // ==================== CORE: Config Server + DevTools Injection ====================
+
+    // ==================== CORE: Temp-file Config + DevTools Injection ====================
 
     /**
-     * Build the self-contained scan+click script to inject into the DevTools console.
-     * The script uses window.__agyTimer (clearable) and window.__agyConfig (updatable live).
+     * Write current panel state to os.tmpdir()/agy-config.json.
+     * The injected script reads this file every 1s via require('fs').
      */
-    private _buildInjectScript(): string {
+    private _syncConfig() {
         const matchers: string[] = [];
         if (this._toggles.yes)   { matchers.push('yes'); }
         if (this._toggles.run)   { matchers.push('run'); }
         if (this._toggles.retry) { matchers.push('retry'); }
-        for (const extra of (this._profile.extraMatchers || [])) {
-            if (!matchers.includes(extra)) { matchers.push(extra); }
-        }
-        const excludes = this._profile.excludeMatchers || ['always run', 'always allow', 'always deny'];
-        const intervalMs = this._scanIntervalMs;
+        const cfg = {
+            active:     this._isRunning,
+            matchers,
+            excludes:   DEFAULT_EXCLUDES,
+            intervalMs: this._scanIntervalMs
+        };
+        try { fs.writeFileSync(this._configPath, JSON.stringify(cfg), 'utf8'); } catch {}
+    }
 
+    /**
+     * Build the one-time injection script.
+     * - Config file is re-read every 1s (cheap, no DevTools round-trips)
+     * - Scan runs at the user-configured interval (default 3s)
+     * - Interval and active state both come from the file — no re-injection
+     */
+    private _buildInjectScript(cfgPath: string): string {
+        const safePath = cfgPath.replace(/\\/g, '\\\\');
         return `(function() {
-  // Stop any previous instance
-  if (window.__agyTimer) { clearInterval(window.__agyTimer); window.__agyTimer = null; }
+  if (window.__agyTimer)      { clearInterval(window.__agyTimer);      window.__agyTimer = null; }
+  if (window.__agyCfgTimer)   { clearInterval(window.__agyCfgTimer);   window.__agyCfgTimer = null; }
 
-  window.__agyConfig = {
-    matchers:  ${JSON.stringify(matchers)},
-    excludes:  ${JSON.stringify(excludes)},
-    intervalMs: ${intervalMs}
-  };
+  var CFG_PATH = '${safePath}';
+  window.__agyConfig = { active: false, matchers: [], excludes: [], intervalMs: 3000 };
+  window.__agyScanInterval = 3000;
 
+  // ── Config reader (every 1s, independent of scan interval) ───────────
+  function readConfig() {
+    try {
+      var raw = require('fs').readFileSync(CFG_PATH, 'utf8');
+      Object.assign(window.__agyConfig, JSON.parse(raw));
+    } catch(e) {}
+  }
+
+  // ── DOM scanner ───────────────────────────────────────────────────────
   function scanDoc(doc, label) {
     try {
       var btns = doc.querySelectorAll('button,[role="button"],a.monaco-button');
-      var clicked = 0;
       for (var i = 0; i < btns.length; i++) {
         var b = btns[i];
-        var txt = ((b.textContent||'')+(b.getAttribute('aria-label')||'')+(b.getAttribute('title')||'')).toLowerCase();
-        var excluded = window.__agyConfig.excludes.some(function(e){return txt.indexOf(e)!==-1;});
-        if (excluded) continue;
-        var matched = window.__agyConfig.matchers.some(function(m){return txt.indexOf(m)!==-1;});
-        if (matched && b.offsetWidth>0 && !b.disabled && !b.dataset.agyClicked) {
-          b.dataset.agyClicked='1';
+        var txt = ((b.textContent||'')+(b.getAttribute('aria-label')||'')+(b.getAttribute('title')||'')).toLowerCase().trim();
+        if (!txt || b.offsetWidth===0 || b.disabled || b.dataset.agyClicked) { continue; }
+        if (window.__agyConfig.excludes.some(function(e){return txt.indexOf(e)!==-1;})) { continue; }
+        if (window.__agyConfig.matchers.some(function(m){return txt.indexOf(m)!==-1;})) {
+          b.dataset.agyClicked = '1';
           b.click();
-          clicked++;
-          setTimeout(function(){try{delete b.dataset.agyClicked;}catch(e){}},5000);
-          console.log('[AlwaysRun] Clicked:', (b.textContent||'').trim().substring(0,40), '|', label);
+          setTimeout(function(){try{delete b.dataset.agyClicked;}catch(e){}}, 5000);
+          console.log('[AlwaysRun] Clicked:', txt.substring(0,50), '|', label);
         }
       }
-      return clicked;
-    } catch(e) { return 0; }
+    } catch(e) {}
   }
 
   function scanAll() {
-    var total = scanDoc(document, 'main');
-    // iframes
-    var iframes = document.querySelectorAll('iframe');
-    for (var i=0;i<iframes.length;i++) {
-      try { total += scanDoc(iframes[i].contentDocument||iframes[i].contentWindow.document,'iframe-'+i); } catch(e){}
+    if (!window.__agyConfig.active) { return; }
+    scanDoc(document, 'main');
+    document.querySelectorAll('iframe').forEach(function(f,i){
+      try{scanDoc(f.contentDocument||f.contentWindow.document,'iframe-'+i);}catch(e){}
+    });
+    (function sd(root,d){if(d>4)return;try{root.querySelectorAll('*').forEach(function(el){
+      if(el.shadowRoot){scanDoc(el.shadowRoot,'shadow');sd(el.shadowRoot,d+1);}
+    });}catch(e){};})(document,0);
+    document.querySelectorAll('webview').forEach(function(w,i){try{scanDoc(w.contentDocument,'wv-'+i);}catch(e){}});
+
+    // Restart scan timer if interval changed
+    var newMs = window.__agyConfig.intervalMs || 3000;
+    if (newMs !== window.__agyScanInterval) {
+      clearInterval(window.__agyTimer);
+      window.__agyScanInterval = newMs;
+      window.__agyTimer = setInterval(scanAll, window.__agyScanInterval);
     }
-    // shadow DOM
-    (function shadow(root,d){if(d>5)return;try{root.querySelectorAll('*').forEach(function(el){if(el.shadowRoot){total+=scanDoc(el.shadowRoot,'shadow');shadow(el.shadowRoot,d+1);}});}catch(e){};})(document,0);
-    // webview elements
-    var wvs = document.querySelectorAll('webview');
-    for (var w=0;w<wvs.length;w++) { try{total+=scanDoc(wvs[w].contentDocument,'wv-'+w);}catch(e){} }
-    return total;
   }
 
-  window.__agyScanAll = scanAll;
+  // Config read: every 1s (cheap fs read, fast response to panel changes)
+  readConfig();
+  window.__agyCfgTimer = setInterval(readConfig, 1000);
+
+  // Scan: at user-configured interval
+  window.__agyTimer = setInterval(scanAll, window.__agyScanInterval);
   scanAll();
-  window.__agyTimer = setInterval(scanAll, window.__agyConfig.intervalMs);
-  console.log('[AlwaysRun] Started, matchers:', window.__agyConfig.matchers, 'interval:', window.__agyConfig.intervalMs+'ms');
+  console.log('[AlwaysRun] Injected. Config file:', CFG_PATH);
 })();`;
-    }
-
-    /**
-     * Inject an arbitrary JS command into the DevTools console (for stop/config updates).
-     */
-    private async _injectCommand(js: string): Promise<void> {
-        const encoded = Buffer.from(js).toString('base64');
-        const result = await this._cdp.openDevToolsAndInject(encoded);
-        if (result.diag?.length) {
-            this._postToWebview({ command: 'diagLog', text: result.diag.join(' → '), logType: 'info' });
-        }
-    }
-
-    /**
-     * Push a live config update to the running script (no restart needed).
-     */
-    private async _pushConfigUpdate(): Promise<void> {
-        const matchers: string[] = [];
-        if (this._toggles.yes)   { matchers.push('yes'); }
-        if (this._toggles.run)   { matchers.push('run'); }
-        if (this._toggles.retry) { matchers.push('retry'); }
-        for (const extra of (this._profile.extraMatchers || [])) {
-            if (!matchers.includes(extra)) { matchers.push(extra); }
-        }
-        const js = `if(window.__agyConfig){window.__agyConfig.matchers=${JSON.stringify(matchers)};console.log('[AlwaysRun] Config updated:',window.__agyConfig.matchers);}`;
-        await this._injectCommand(js);
     }
 
     public startAutoScan() {
         if (this._isRunning) { return; }
         this._isRunning = true;
+        this._syncConfig();   // write active=true to temp file
         this._postToWebview({ command: 'started' });
-        this._postToWebview({ command: 'diagLog', text: '💉 Injecting script via DevTools console...', logType: 'info' });
 
-        const script = this._buildInjectScript();
+        if (this._scriptInjected) {
+            // Script already running — file update is enough (read within 1s)
+            this._postToWebview({ command: 'diagLog', text: '▶ Resumed (config file updated)', logType: 'success' });
+            return;
+        }
+
+        // First time: inject via DevTools
+        this._postToWebview({ command: 'diagLog', text: '💉 First start — injecting script via DevTools...', logType: 'info' });
+        const script = this._buildInjectScript(this._configPath);
         const encoded = Buffer.from(script).toString('base64');
-        this._cdp.openDevToolsAndInject(encoded).then(result => {
+        this._native.openDevToolsAndInject(encoded).then(result => {
             if (result.error) {
                 this._postToWebview({ command: 'scanError', message: result.error });
                 this._isRunning = false;
+                this._syncConfig();
                 this._postToWebview({ command: 'stopped' });
                 return;
             }
@@ -387,35 +280,24 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                     this._postToWebview({ command: 'diagLog', text: line, logType: 'info' });
                 }
             }
-            this._postToWebview({ command: 'diagLog', text: '✅ Script injected — running inside VS Code renderer', logType: 'success' });
+            this._scriptInjected = true;
+            this._postToWebview({ command: 'diagLog', text: '✅ Injected — reads config from ' + this._configPath, logType: 'success' });
         }).catch(err => {
             this._postToWebview({ command: 'scanError', message: err.message });
             this._isRunning = false;
+            this._syncConfig();
             this._postToWebview({ command: 'stopped' });
         });
     }
 
     public stopAutoScan() {
         this._isRunning = false;
-        this._postToWebview({ command: 'diagLog', text: '🛑 Stopping injected script...', logType: 'info' });
-        // Inject stop command into the DevTools console
-        const stopJs = `if(window.__agyTimer){clearInterval(window.__agyTimer);window.__agyTimer=null;console.log('[AlwaysRun] Stopped');}`;
-        this._injectCommand(stopJs).then(() => {
-            this._postToWebview({ command: 'stopped' });
-        }).catch(() => {
-            this._postToWebview({ command: 'stopped' });
-        });
+        this._syncConfig();   // write active=false — script pauses within 1s
+        this._postToWebview({ command: 'stopped' });
+        this._postToWebview({ command: 'diagLog', text: '⏹ Stopped (script pauses within 1s, no DevTools needed)', logType: 'info' });
     }
 
-    // Restart the injected script's timer with updated interval
-    private _restartScanTimer() {
-        if (this._isRunning) {
-            const ms = this._scanIntervalMs;
-            const js = `if(window.__agyTimer&&window.__agyScanAll){clearInterval(window.__agyTimer);window.__agyConfig.intervalMs=${ms};window.__agyTimer=setInterval(window.__agyScanAll,${ms});console.log('[AlwaysRun] Interval updated:',${ms}+'ms');}`;
-            this._injectCommand(js).catch(() => {});
-            this._postToWebview({ command: 'diagLog', text: `⏱ Interval updated: ${ms}ms`, logType: 'info' });
-        }
-    }
+    private _restartScanTimer() { /* script detects interval change via config file */ }
 
     /**
      * Post a message to the webview panel.
@@ -452,7 +334,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         <div class="panel-header">
             <span class="panel-icon">🎯</span>
             <span class="panel-title">Antigravity Always Run</span>
-            <span class="project-badge" id="project-badge">◆ Generic</span>
+            <span class="project-badge" id="project-badge"></span>
             <span class="status-dot" id="status-dot"></span>
         </div>
 
