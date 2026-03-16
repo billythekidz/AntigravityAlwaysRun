@@ -1,8 +1,12 @@
 .vscode/**
 .vscode-test/**
 src/**
-node_modules/**
 .gitignore
 tsconfig.json
 **/*.ts
 **/*.map
+agy-auto-accept.js
+release-extension.py
+node_modules/typescript/**
+node_modules/@types/**
+node_modules/esbuild/**

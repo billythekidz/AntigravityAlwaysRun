@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { CdpHandler } from './CdpHandler';
 
 // ==================== PROJECT DETECTION ====================
 
@@ -125,6 +126,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     private _scanTimer: ReturnType<typeof setInterval> | null = null;
     private _scanIntervalMs = 3000; // default 3s
     private _profile: ProjectProfile = PROFILES[3]; // default: generic
+    private _cdp!: CdpHandler;
 
     // Toggle states for which buttons to auto-click
     private _toggles = {
@@ -133,7 +135,13 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         retry: true
     };
 
-    constructor(private readonly _extensionUri: vscode.Uri) {}
+    constructor(private readonly _extensionUri: vscode.Uri) {
+        const extPath = _extensionUri.fsPath;
+        this._cdp = new CdpHandler(
+            (msg, type) => this._postToWebview({ command: 'diagLog', text: msg, logType: type || 'info' }),
+            extPath
+        );
+    }
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
@@ -155,9 +163,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         // Detect the project and send the profile to the webview
         ProjectDetector.detect().then(profile => {
             this._profile = profile;
-            // Apply default toggles from the profile
             this._toggles = { ...profile.defaultToggles };
-            // Send profile to webview
             this._postToWebview({ command: 'projectProfile', profile });
         });
 
@@ -264,163 +270,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         this.startAutoScan();
     }
 
-    // ==================== CORE: Electron-based DOM injection ====================
-
-    /**
-     * Execute JavaScript in VS Code's main renderer window via Electron API.
-     * This bypasses the webview sandbox and runs in the actual editor DOM.
-     */
-    private async _executeInMainWindow(js: string): Promise<any> {
-        try {
-            const electron = require('electron');
-            const windows = electron.BrowserWindow.getAllWindows();
-            
-            if (windows.length === 0) {
-                console.error('[Always Run] No Electron windows found');
-                return null;
-            }
-
-            // Try each window until one accepts our script.
-            // isFocused() is unreliable from the extension host, so we try all.
-            for (const win of windows) {
-                try {
-                    const result = await win.webContents.executeJavaScript(js, true);
-                    if (result !== undefined && result !== null) {
-                        return result;
-                    }
-                } catch {
-                    // This window didn't work, try the next
-                }
-            }
-            return null;
-        } catch (error: any) {
-            console.error('[Always Run] executeJavaScript failed:', error.message);
-            return null;
-        }
-    }
-
-    /**
-     * Build the inline scanner script based on current toggle states.
-     * This script runs in VS Code's main renderer process DOM.
-     */
-    private _buildScannerScript(): string {
-        const matchers: string[] = [];
-        if (this._toggles.yes) { matchers.push(`'yes'`); }
-        if (this._toggles.run) { matchers.push(`'run'`); }
-        if (this._toggles.retry) { matchers.push(`'retry'`); }
-
-        // Add profile-specific extra matchers
-        for (const extra of (this._profile.extraMatchers || [])) {
-            if (!matchers.includes(`'${extra}'`)) { matchers.push(`'${extra}'`); }
-        }
-
-        // Build exclude list from profile
-        const excludeMatchers = this._profile.excludeMatchers || ['always run', 'always allow', 'always deny'];
-
-        // If no toggles are on, don't scan
-        if (matchers.length === 0) {
-            return `(function() { return JSON.stringify({ clicked: 0, found: [], scanned: 0 }); })()`;
-        }
-
-        // The scanner script that runs inside VS Code's Electron renderer
-        return `(function() {
-            var matchers = [${matchers.join(',')}];
-            var foundButtons = [];
-            var clicked = 0;
-            var scannedFrames = 0;
-
-            function scanDoc(doc, label) {
-                try {
-                    var buttons = doc.querySelectorAll('button, [role="button"], a.monaco-button');
-                    for (var i = 0; i < buttons.length; i++) {
-                        var btn = buttons[i];
-                        var text = (btn.textContent || '').trim().toLowerCase();
-                        var ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-                        var title = (btn.getAttribute('title') || '').toLowerCase();
-                        var allText = text + ' ' + ariaLabel + ' ' + title;
-
-                        // Check if button matches any enabled matcher
-                        var isTarget = false;
-                        for (var m = 0; m < matchers.length; m++) {
-                            if (allText.indexOf(matchers[m]) !== -1) {
-                                isTarget = true;
-                                break;
-                            }
-                        }
-
-                        // Exclude based on profile exclude list
-                        var excludes = [${excludeMatchers.map(e => `'${e}'`).join(',')}];
-                        var isExcluded = false;
-                        for (var e = 0; e < excludes.length; e++) {
-                            if (allText.indexOf(excludes[e]) !== -1) { isExcluded = true; break; }
-                        }
-
-                        // Must be visible, enabled, and not already clicked
-                        if (isTarget && !isExcluded 
-                            && btn.offsetWidth > 0 && btn.offsetHeight > 0 
-                            && !btn.disabled
-                            && !btn.dataset.agyClicked) {
-                            foundButtons.push({
-                                text: (text || ariaLabel || title).substring(0, 40),
-                                source: label
-                            });
-                            btn.click();
-                            btn.dataset.agyClicked = '1';
-                            // Clear the marker after 5 seconds so it can be clicked again
-                            setTimeout(function() { try { delete btn.dataset.agyClicked; } catch(e) {} }, 5000);
-                            clicked++;
-                        }
-                    }
-                } catch(e) { /* Cannot access document */ }
-            }
-
-            // 1. Scan main document
-            scanDoc(document, 'main');
-
-            // 2. Scan all iframes (agent panels, webviews rendered as iframes)
-            var iframes = document.querySelectorAll('iframe');
-            for (var i = 0; i < iframes.length; i++) {
-                scannedFrames++;
-                try {
-                    var iframeDoc = iframes[i].contentDocument || iframes[i].contentWindow.document;
-                    if (iframeDoc) { scanDoc(iframeDoc, 'iframe-' + i); }
-                } catch(e) { /* cross-origin iframe */ }
-            }
-
-            // 3. Scan shadow DOMs (VS Code uses them extensively)
-            function scanShadowRoots(root, depth) {
-                if (depth > 5) return; // prevent infinite recursion
-                try {
-                    var elements = root.querySelectorAll('*');
-                    for (var j = 0; j < elements.length; j++) {
-                        if (elements[j].shadowRoot) {
-                            scannedFrames++;
-                            scanDoc(elements[j].shadowRoot, 'shadow-' + depth);
-                            scanShadowRoots(elements[j].shadowRoot, depth + 1);
-                        }
-                    }
-                } catch(e) {}
-            }
-            scanShadowRoots(document, 0);
-
-            // 4. Scan webview elements (Electron-specific)
-            var webviews = document.querySelectorAll('webview');
-            for (var w = 0; w < webviews.length; w++) {
-                scannedFrames++;
-                try {
-                    var wvDoc = webviews[w].contentDocument;
-                    if (wvDoc) { scanDoc(wvDoc, 'webview-' + w); }
-                } catch(e) { /* Cannot access webview */ }
-            }
-
-            return JSON.stringify({
-                clicked: clicked,
-                found: foundButtons,
-                scanned: scannedFrames,
-                windowTitle: document.title
-            });
-        })()`;
-    }
+    // ==================== CORE: CDP-based DOM injection ====================
 
     /**
      * Start the periodic auto-scan loop.
@@ -462,6 +312,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             this._scanTimer = null;
         }
         this._isRunning = false;
+        this._cdp.stop().catch(() => {});
         console.log('[Always Run] Auto-scan STOPPED');
         this._postToWebview({ command: 'stopped' });
     }
@@ -473,45 +324,28 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         if (!this._isRunning) { return; }
 
         try {
-            const script = this._buildScannerScript();
-            const resultStr = await this._executeInMainWindow(script);
+            const { connectedCount, windowTitle } = await this._cdp.runCycle();
 
-            if (resultStr) {
-                const result = JSON.parse(resultStr);
-
-                // Update project profile based on the title of the scanned window
-                if (result.windowTitle) {
-                    const detected = ProjectDetector.detectFromTitle(result.windowTitle);
-                    if (detected.id !== this._profile.id || (detected as any).projectName !== (this._profile as any).projectName) {
+            if (connectedCount === 0) {
+                this._postToWebview({
+                    command: 'scanError',
+                    message: `CDP not found on port ${this._cdp.basePort}±${this._cdp.portRange}. Is Antigravity browser running?`
+                });
+            } else {
+                // Update project badge from window title
+                if (windowTitle) {
+                    const detected = ProjectDetector.detectFromTitle(windowTitle);
+                    if (detected.projectName !== (this._profile as any).projectName) {
                         this._profile = detected;
-                        this._toggles = { ...detected.defaultToggles };
                         this._postToWebview({ command: 'projectProfile', profile: detected });
                     }
                 }
-
-                this._postToWebview({
-                    command: 'scanResult',
-                    clicked: result.clicked,
-                    found: result.found,
-                    scanned: result.scanned
-                });
-
-                if (result.clicked > 0) {
-                    console.log(`[Always Run] Clicked ${result.clicked} button(s):`,
-                        result.found.map((b: any) => b.text).join(', '));
-                }
-            } else {
-                this._postToWebview({
-                    command: 'scanError',
-                    message: 'Could not access the editor window. Make sure the Antigravity IDE is in focus.'
-                });
+                // Acknowledge scan (no explicit click count from CDP inject — script runs inside browser)
+                this._postToWebview({ command: 'scanResult', clicked: 0, found: [], scanned: connectedCount });
             }
         } catch (error: any) {
-            console.error('[Always Run] Scan cycle error:', error.message);
-            this._postToWebview({
-                command: 'scanError',
-                message: error.message
-            });
+            console.error('[Always Run] Scan error:', error.message);
+            this._postToWebview({ command: 'scanError', message: error.message });
         }
     }
 
