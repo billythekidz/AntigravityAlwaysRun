@@ -430,7 +430,6 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             <div class="log-header">
                 <span>Activity Log</span>
                 <div style="display:flex;gap:4px">
-                    <button class="btn-clear" id="diagnose-btn" title="Test extension host Electron access">🔧 Diag</button>
                     <button class="btn-clear" id="clear-log-btn">Clear</button>
                 </div>
             </div>

@@ -103,13 +103,15 @@ if (-not $devWin) {
     [W2]::SetForegroundWindow($hWnd) | Out-Null
     Start-Sleep -Milliseconds 600
 
-    # Open Command Palette and run Toggle Developer Tools
+    # Open Command Palette, paste command name via clipboard (faster + no char-by-char issues)
+    [System.Windows.Forms.Clipboard]::SetText('Toggle Developer Tools')
+    Start-Sleep -Milliseconds 200
     [System.Windows.Forms.SendKeys]::SendWait('^+p')
     Start-Sleep -Milliseconds 700
-    [System.Windows.Forms.SendKeys]::SendWait('Toggle Developer Tools')
-    Start-Sleep -Milliseconds 500
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Start-Sleep -Milliseconds 400
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-    $diag += "Command palette: Toggle Developer Tools → Enter"
+    $diag += "Command palette: pasted Toggle Developer Tools + Enter"
     Start-Sleep -Milliseconds 2500
 
     $devWin = Find-Window 'Developer Tools - vscode-file'
@@ -312,10 +314,13 @@ foreach ($win in $windows) {
 
     private _run(cmd: string, args: string[]): Promise<ClickResult> {
         return new Promise((resolve) => {
-            const child = execFile(cmd, args, { timeout: 15000 }, (err, stdout) => {
+            const child = execFile(cmd, args, { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
                 if (err && !stdout) { resolve({ clicked: 0, found: [], error: err.message }); return; }
+                // Skip any leading non-JSON text (PowerShell warnings etc.)
+                const jsonStart = stdout.indexOf('{');
+                const jsonStr = jsonStart >= 0 ? stdout.slice(jsonStart) : stdout;
                 try {
-                    const parsed = JSON.parse(stdout.trim());
+                    const parsed = JSON.parse(jsonStr.trim());
                     resolve({
                         clicked: Number(parsed.clicked) || 0,
                         found: Array.isArray(parsed.found) ? parsed.found : [],
@@ -323,7 +328,7 @@ foreach ($win in $windows) {
                         error: parsed.error
                     });
                 } catch {
-                    resolve({ clicked: 0, found: [], error: 'Parse error: ' + stdout.slice(0, 400) });
+                    resolve({ clicked: 0, found: [], error: 'Parse error: ' + stdout.slice(0, 500) });
                 }
             });
             setTimeout(() => { try { child.kill(); } catch {} }, 16000);
