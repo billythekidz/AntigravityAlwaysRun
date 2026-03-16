@@ -29,7 +29,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     private _configPath: string;
     private _scriptInjected = false;
 
-    private _toggles = { yes: true, run: true, retry: true };
+    private _toggles = { yes: true, run: true, retry: true, accept: true };
 
     constructor(private readonly _extensionUri: vscode.Uri) {
         this._native = new NativeClickHandler();
@@ -165,9 +165,10 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
      */
     private _syncConfig() {
         const matchers: string[] = [];
-        if (this._toggles.yes)   { matchers.push('yes'); }
-        if (this._toggles.run)   { matchers.push('run'); }
-        if (this._toggles.retry) { matchers.push('retry'); }
+        if (this._toggles.yes)    { matchers.push('yes'); }
+        if (this._toggles.run)    { matchers.push('run'); }
+        if (this._toggles.retry)  { matchers.push('retry'); }
+        if (this._toggles.accept) { matchers.push('accept'); }
         const cfg = {
             active:     this._isRunning,
             matchers,
@@ -183,15 +184,18 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
      * - Scan runs at the user-configured interval (default 3s)
      * - Interval and active state both come from the file — no re-injection
      */
-    private _buildInjectScript(cfgPath: string): string {
+    private _buildInjectScript(cfgPath: string, liveCfg: { active: boolean; matchers: string[]; excludes: string[]; intervalMs: number }): string {
         const safePath = cfgPath.replace(/\\/g, '\\\\');
+        // Embed the live config so scanner works immediately even if require('fs') fails
+        const cfgJson = JSON.stringify(liveCfg);
         return `(function() {
   if (window.__agyTimer)      { clearInterval(window.__agyTimer);      window.__agyTimer = null; }
   if (window.__agyCfgTimer)   { clearInterval(window.__agyCfgTimer);   window.__agyCfgTimer = null; }
 
   var CFG_PATH = '${safePath}';
-  window.__agyConfig = { active: false, matchers: [], excludes: [], intervalMs: 3000 };
-  window.__agyScanInterval = 3000;
+  // Live config embedded at injection time — works even if fs polling fails
+  window.__agyConfig = ${cfgJson};
+  window.__agyScanInterval = window.__agyConfig.intervalMs || 3000;
 
   // ── Config reader (every 1s, independent of scan interval) ───────────
   function readConfig() {
@@ -265,7 +269,18 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
 
         // First time: inject via DevTools
         this._postToWebview({ command: 'diagLog', text: '💉 First start — injecting script via DevTools...', logType: 'info' });
-        const script = this._buildInjectScript(this._configPath);
+        const matchers: string[] = [];
+        if (this._toggles.yes)    { matchers.push('yes'); }
+        if (this._toggles.run)    { matchers.push('run'); }
+        if (this._toggles.retry)  { matchers.push('retry'); }
+        if (this._toggles.accept) { matchers.push('accept'); }
+        const liveCfg = {
+            active:     true,
+            matchers,
+            excludes:   DEFAULT_EXCLUDES,
+            intervalMs: this._scanIntervalMs
+        };
+        const script = this._buildInjectScript(this._configPath, liveCfg);
         const encoded = Buffer.from(script).toString('base64');
         this._native.openDevToolsAndInject(encoded).then(result => {
             if (result.error) {
@@ -396,6 +411,13 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 <span class="toggle-label">🔄 Retry</span>
                 <label class="toggle-switch">
                     <input type="checkbox" id="toggle-retry" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="toggle-row">
+                <span class="toggle-label">☑️ Accept</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="toggle-accept" checked>
                     <span class="toggle-slider"></span>
                 </label>
             </div>

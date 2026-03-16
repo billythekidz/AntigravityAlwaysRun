@@ -30,9 +30,10 @@
     const projectBadge = document.getElementById('project-badge');
 
     // Toggle checkboxes
-    const toggleYes = document.getElementById('toggle-yes');
-    const toggleRun = document.getElementById('toggle-run');
-    const toggleRetry = document.getElementById('toggle-retry');
+    const toggleYes    = document.getElementById('toggle-yes');
+    const toggleRun    = document.getElementById('toggle-run');
+    const toggleRetry  = document.getElementById('toggle-retry');
+    const toggleAccept = document.getElementById('toggle-accept');
 
     // ==================== LOGGING ====================
     function addLog(text, type) {
@@ -72,9 +73,10 @@
         vscode.postMessage({
             command: 'toggleUpdate',
             toggles: {
-                yes: toggleYes.checked,
-                run: toggleRun.checked,
-                retry: toggleRetry.checked
+                yes:    toggleYes.checked,
+                run:    toggleRun.checked,
+                retry:  toggleRetry.checked,
+                accept: toggleAccept.checked
             }
         });
     }
