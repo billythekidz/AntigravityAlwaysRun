@@ -587,9 +587,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 <div class="setup-step">
                     <span class="step-num">1</span>
                     <span class="step-text">Start the config server:<br>
-                        <button class="btn btn-primary" id="manual-start-btn" style="width:100%;font-size:12px;padding:6px 12px;margin-top:4px">
-                            <span class="btn-icon">▶️</span> Manual Start
-                        </button>
+                        <button class="setup-open-btn" id="manual-start-btn">▶️ Manual Start</button>
                     </span>
                 </div>
                 <div class="setup-step">
