@@ -158,6 +158,7 @@ public class W2 {
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr p);
     [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool f);
     [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
@@ -272,24 +273,25 @@ $diag += "DevTools window found!"
 Start-Sleep -Milliseconds 300
 $diag += "Script on clipboard ($($scriptContent.Length) chars)"
 
-# ── Step 3: Focus DevTools with AttachThreadInput ────────────────────────
+# ── Step 3: Focus DevTools + verify ─────────────────────────────────────
 $hWnd = [IntPtr]$devWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
 Invoke-ForceFocus $hWnd
+Start-Sleep -Milliseconds 500
+if ([W2]::GetForegroundWindow() -ne $hWnd) {
+    $diag += "Focus retry..."
+    Invoke-ForceFocus $hWnd
+    Start-Sleep -Milliseconds 500
+}
 
-# ── Step 4: Open console tab (Ctrl+Shift+J → Console panel + focuses input)
-[System.Windows.Forms.SendKeys]::SendWait('^+j')
-Start-Sleep -Milliseconds 800
-
-# ── Step 5: Re-focus DevTools before paste ───────────────────────────────
-Invoke-ForceFocus $hWnd
-
-# ── Step 6: Clear any existing text, paste script ─────────────────────────
-[System.Windows.Forms.SendKeys]::SendWait('^a')
+# ── Step 4: Paste — Escape cancels any input, Ctrl+V pastes ─────────────
+# NO Ctrl+A (risk: selects all in VS Code editor!)
+# NO Ctrl+Shift+J (risk: stuck Shift key = chaotic shortcuts!)
+[System.Windows.Forms.SendKeys]::SendWait('{ESC}')
 Start-Sleep -Milliseconds 200
 [System.Windows.Forms.SendKeys]::SendWait('^v')
-Start-Sleep -Milliseconds 1000   # large script — give time to render
+Start-Sleep -Milliseconds 1500
 
-# ── Step 7: Execute ───────────────────────────────────────────────────────
+# ── Step 5: Execute ───────────────────────────────────────────────────────
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 $diag += "Script pasted and executed!"
 
