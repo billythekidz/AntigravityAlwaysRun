@@ -32,11 +32,11 @@ import sys
 
 # ─── Resolve paths ───────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+PROJECT_ROOT = SCRIPT_DIR
 EXTENSION_DIR = SCRIPT_DIR
 
 PACKAGE_JSON_PATH = os.path.join(EXTENSION_DIR, "package.json")
-SECRETS_FILE = os.path.join(PROJECT_ROOT, ".secrets", "ovsx-token.txt")
+SECRETS_FILE = r"D:\GITHUB\UnityAntigravityIDE\.secrets\ovsx-token.txt"
 
 EXTENSION_NAME = "antigravity-always-run"
 TAG_PREFIX = "always-run-v"
@@ -143,17 +143,17 @@ def main():
     run(f"npx -y ovsx publish {vsix_name} --pat {ovsx_token}", cwd=EXTENSION_DIR)
     ok("Published to Open VSX successfully!")
 
-    # 6. Git Commit & Push (only AntigravityAlwaysRun~ changes)
+    # 6. Git Commit & Push
     warn("Committing changes to Git...")
-    run("git add AntigravityAlwaysRun~/", cwd=PROJECT_ROOT)
+    run("git add .", cwd=PROJECT_ROOT)
     run(f'git commit --no-verify -m "{commit_msg}"', cwd=PROJECT_ROOT)
-    run("git push --no-verify", cwd=PROJECT_ROOT)
+    run("git push origin main --no-verify", cwd=PROJECT_ROOT)
     run(f"git tag {tag_name}", cwd=PROJECT_ROOT)
     run(f"git push origin {tag_name} --no-verify", cwd=PROJECT_ROOT)
 
     # 7. GitHub Release
     warn("Creating GitHub Release...")
-    relative_vsix = f"AntigravityAlwaysRun~/{vsix_name}"
+    relative_vsix = vsix_name
     run(
         f'gh release create "{tag_name}" "{relative_vsix}" '
         f'--title "{release_title}" '
