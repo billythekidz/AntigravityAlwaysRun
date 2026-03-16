@@ -18,10 +18,133 @@ export class NativeClickHandler {
      * 3. Paste the encoded script via clipboard → Ctrl+V → Enter
      */
     async openDevToolsAndInject(encodedScript: string): Promise<ClickResult> {
-        if (this.platform !== 'win32') {
-            return { clicked: 0, found: [], diag: ['Windows only for now'] };
+        switch (this.platform) {
+            case 'win32':  return this._openDevToolsWindows(encodedScript);
+            case 'darwin': return this._openDevToolsMac(encodedScript);
+            default:       return this._openDevToolsLinux(encodedScript);
         }
+    }
 
+    // ── macOS: bash + pbcopy + osascript ────────────────────────────────────
+    private _openDevToolsMac(encodedScript: string): Promise<ClickResult> {
+        const sh = `
+#!/bin/bash
+set -e
+DIAG=()
+
+# Decode script
+SCRIPT=$(echo '${encodedScript}' | base64 -d)
+DIAG+=("Script decoded: \${#SCRIPT} chars")
+
+# Step 1: Open DevTools via command palette
+echo -n "Toggle Developer Tools" | pbcopy
+sleep 0.3
+
+# Activate Code/Antigravity
+osascript << 'ASCRIPT'
+tell application "System Events"
+  set procs to (every process whose name contains "Antigravity" or name contains "code")
+  if (count of procs) > 0 then set frontmost of (first item of procs) to true
+end tell
+ASCRIPT
+sleep 0.5
+
+# Cmd+Shift+P (command palette)
+osascript -e 'tell application "System Events" to key code 35 using {command down, shift down}'
+sleep 0.6
+# Cmd+V (paste command name)
+osascript -e 'tell application "System Events" to key code 9 using command down'
+sleep 0.4
+# Return
+osascript -e 'tell application "System Events" to key code 36'
+DIAG+=("Command palette: pasted Toggle Developer Tools + Enter")
+sleep 2.5
+
+# Step 2: Paste the script into DevTools console
+printf '%s' "$SCRIPT" | pbcopy
+sleep 0.3
+# Cmd+Shift+J => focus console
+osascript -e 'tell application "System Events" to key code 38 using {command down, shift down}'
+sleep 0.4
+# Cmd+A select all, Cmd+V paste
+osascript -e 'tell application "System Events" to key code 0 using command down'
+sleep 0.1
+osascript -e 'tell application "System Events" to key code 9 using command down'
+sleep 0.3
+# Return => execute
+osascript -e 'tell application "System Events" to key code 36'
+DIAG+=("Script pasted and executed")
+
+# Step 3: Close DevTools (toggle again)
+sleep 0.8
+osascript -e 'tell application "System Events" to key code 35 using {command down, shift down}'
+osascript -e 'tell application "System Events" to key code 9 using command down'  # paste (re-opens toggle)
+osascript -e 'tell application "System Events" to key code 36'
+DIAG+=("DevTools closed")
+
+DIAG_JSON=$(printf '"%s",' "\${DIAG[@]}" | sed 's/,$//')
+echo "{\\"clicked\\":1,\\"found\\":[{\\"text\\":\\"DevTools inject\\",\\"window\\":\\"Developer Tools\\"}],\\"diag\\":[$DIAG_JSON]}"
+`.trim();
+        return this._run('bash', ['-c', sh]);
+    }
+
+    // ── Linux: bash + xclip + xdotool ───────────────────────────────────────
+    private _openDevToolsLinux(encodedScript: string): Promise<ClickResult> {
+        const sh = `
+#!/bin/bash
+DIAG=()
+clip_copy() { echo -n "$1" | xclip -selection clipboard 2>/dev/null || echo -n "$1" | xsel --clipboard --input 2>/dev/null; }
+clip_copy_data() { printf '%s' "$1" | xclip -selection clipboard 2>/dev/null || printf '%s' "$1" | xsel --clipboard --input 2>/dev/null; }
+
+# Decode script
+SCRIPT=$(echo '${encodedScript}' | base64 -d)
+DIAG+=("Script decoded: \${#SCRIPT} chars")
+
+# Step 1: focus main Code/Antigravity window
+WIN=$(xdotool search --name "Antigravity\\|code" 2>/dev/null | head -1)
+if [ -z "$WIN" ]; then
+  echo '{"clicked":0,"found":[],"diag":[],"error":"Window not found"}'
+  exit 0
+fi
+xdotool windowfocus --sync "$WIN"
+xdotool windowraise "$WIN"
+sleep 0.5
+
+# Open command palette via clipboard paste
+clip_copy "Toggle Developer Tools"
+sleep 0.3
+xdotool key ctrl+shift+p
+sleep 0.6
+xdotool key ctrl+v
+sleep 0.4
+xdotool key Return
+DIAG+=("Command palette: pasted Toggle Developer Tools + Enter")
+sleep 2.5
+
+# Step 2: Paste script into DevTools console
+clip_copy_data "$SCRIPT"
+sleep 0.3
+xdotool key ctrl+shift+j   # focus console panel
+sleep 0.4
+xdotool key ctrl+a
+sleep 0.1
+xdotool key ctrl+v
+sleep 0.3
+xdotool key Return
+DIAG+=("Script pasted and executed")
+
+sleep 0.8
+xdotool key ctrl+shift+i   # close DevTools
+DIAG+=("DevTools closed")
+
+DIAG_JSON=$(printf '"%s",' "\${DIAG[@]}" | sed 's/,$//')
+echo "{\\"clicked\\":1,\\"found\\":[{\\"text\\":\\"DevTools inject\\",\\"window\\":\\"Developer Tools\\"}],\\"diag\\":[$DIAG_JSON]}"
+`.trim();
+        return this._run('bash', ['-c', sh]);
+    }
+
+    // ── Windows PowerShell ─────────────────────────────────────────────────
+    private _openDevToolsWindows(encodedScript: string): Promise<ClickResult> {
         const ps = `
 try { Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop } catch {}
 try { Add-Type -AssemblyName UIAutomationTypes  -ErrorAction Stop } catch {}
