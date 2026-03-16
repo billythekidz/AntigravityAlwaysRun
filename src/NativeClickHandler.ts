@@ -248,15 +248,29 @@ if (-not $devWin) {
 }
 $diag += "DevTools window found!"
 
-# ── Step 2: Put script on clipboard ──────────────────────────────────────
+# ── Step 2: Put script on clipboard and VERIFY ───────────────────────────
 try {
-    [System.Windows.Forms.Clipboard]::SetText($scriptContent)
-    $diag += "Script copied to clipboard"
+    Set-Clipboard -Value $scriptContent
+    $diag += "Script copied to clipboard (Set-Clipboard)"
 } catch {
-    $diag += "Clipboard error: $_"
-    Write-Output (@{clicked=0;found=@();diag=$diag;error="Clipboard: $_"} | ConvertTo-Json -Compress)
+    # Fallback to Windows.Forms (already STA now with -Sta flag)
+    try {
+        [System.Windows.Forms.Clipboard]::SetText($scriptContent)
+        $diag += "Script copied to clipboard (WinForms fallback)"
+    } catch {
+        $diag += "Clipboard error: $_"
+        Write-Output (@{clicked=0;found=@();diag=$diag;error="Clipboard: $_"} | ConvertTo-Json -Compress)
+        exit
+    }
+}
+# Verify clipboard actually has our content
+$verify = Get-Clipboard -Raw
+if (-not $verify -or $verify.Length -lt 10) {
+    $diag += "Clipboard verify FAILED — content missing"
+    Write-Output (@{clicked=0;found=@();diag=$diag;error="Clipboard verify failed"} | ConvertTo-Json -Compress)
     exit
 }
+$diag += "Clipboard verified OK ($($verify.Length) chars)"
 
 # ── Step 3: Focus DevTools window ────────────────────────────────────────
 $hWnd = [IntPtr]$devWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
@@ -314,7 +328,7 @@ try {
 @{clicked=1; found=@(@{text='DevTools inject'; window='Developer Tools'}); diag=$diag} | ConvertTo-Json -Compress -Depth 3
 `.trim();
 
-        return this._run('powershell', ['-NonInteractive', '-NoProfile', '-Command', ps]);
+        return this._run('powershell', ['-Sta', '-NonInteractive', '-NoProfile', '-Command', ps]);
     }
 
     /**
