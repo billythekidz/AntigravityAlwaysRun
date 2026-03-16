@@ -44,6 +44,18 @@ body {
     flex: 1;
 }
 
+.project-badge {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 10px;
+    background: var(--vscode-badge-background, rgba(100, 150, 255, 0.15));
+    color: var(--vscode-badge-foreground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-badge-background, rgba(100, 150, 255, 0.3));
+    white-space: nowrap;
+    opacity: 0.85;
+}
+
 /* ── Warning Banner ── */
 .warning-banner {
     background: rgba(204, 167, 0, 0.08);

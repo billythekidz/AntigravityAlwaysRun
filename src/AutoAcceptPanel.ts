@@ -1,4 +1,92 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// ==================== PROJECT DETECTION ====================
+
+interface ProjectProfile {
+    id: string;
+    label: string;
+    emoji: string;
+    description: string;
+    defaultToggles: { yes: boolean; run: boolean; retry: boolean; };
+    extraMatchers?: string[];
+    excludeMatchers?: string[];
+}
+
+const PROFILES: ProjectProfile[] = [
+    {
+        id: 'unity',
+        label: 'Unity IDE',
+        emoji: '🎮',
+        description: 'Antigravity Unity project',
+        defaultToggles: { yes: true, run: true, retry: true },
+        extraMatchers: ['accept', 'confirm', 'allow', 'apply'],
+        excludeMatchers: ['always run', 'always allow', 'always deny']
+    },
+    {
+        id: 'nakama',
+        label: 'Game Server',
+        emoji: '⚙️',
+        description: 'Nakama server project',
+        defaultToggles: { yes: true, run: true, retry: false },
+        extraMatchers: ['deploy', 'apply', 'confirm'],
+        excludeMatchers: ['always run', 'always allow', 'always deny']
+    },
+    {
+        id: 'dashboard',
+        label: 'Dashboard',
+        emoji: '🖥',
+        description: 'Next.js dashboard project',
+        defaultToggles: { yes: true, run: false, retry: false },
+        extraMatchers: ['confirm', 'submit'],
+        excludeMatchers: ['always run', 'always allow', 'always deny']
+    },
+    {
+        id: 'generic',
+        label: 'Generic',
+        emoji: '◆',
+        description: 'No specific project detected',
+        defaultToggles: { yes: true, run: true, retry: true },
+        excludeMatchers: ['always run', 'always allow', 'always deny']
+    }
+];
+
+class ProjectDetector {
+    static async detect(): Promise<ProjectProfile> {
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders || folders.length === 0) { return PROFILES[3]; } // generic
+
+        for (const folder of folders) {
+            const root = folder.uri.fsPath;
+
+            // Unity: has Assets/ directory
+            if (fs.existsSync(path.join(root, 'Assets'))) {
+                return PROFILES[0];
+            }
+
+            // Nakama: has nakama-runtime in package.json dependencies
+            const pkgPath = path.join(root, 'package.json');
+            if (fs.existsSync(pkgPath)) {
+                try {
+                    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+                    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+                    if (deps['nakama-runtime'] || deps['@heroiclabs/nakama-runtime']) {
+                        return PROFILES[1];
+                    }
+                } catch {}
+            }
+
+            // Dashboard: has next.config.* file
+            const files = fs.existsSync(root) ? fs.readdirSync(root) : [];
+            if (files.some(f => f.startsWith('next.config'))) {
+                return PROFILES[2];
+            }
+        }
+
+        return PROFILES[3]; // generic
+    }
+}
 
 export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'antigravity-always-run.panel';
@@ -7,6 +95,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     private _isRunning = false;
     private _scanTimer: ReturnType<typeof setInterval> | null = null;
     private _scanIntervalMs = 3000; // default 3s
+    private _profile: ProjectProfile = PROFILES[3]; // default: generic
 
     // Toggle states for which buttons to auto-click
     private _toggles = {
@@ -33,6 +122,15 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         };
 
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+
+        // Detect the project and send the profile to the webview
+        ProjectDetector.detect().then(profile => {
+            this._profile = profile;
+            // Apply default toggles from the profile
+            this._toggles = { ...profile.defaultToggles };
+            // Send profile to webview
+            this._postToWebview({ command: 'projectProfile', profile });
+        });
 
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage((message) => {
@@ -93,7 +191,6 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
      */
     private async _executeInMainWindow(js: string): Promise<any> {
         try {
-            // Access Electron's BrowserWindow from the Node.js context
             const electron = require('electron');
             const windows = electron.BrowserWindow.getAllWindows();
             
@@ -102,8 +199,8 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 return null;
             }
 
-            // Use the first window (the main VS Code window)
-            const mainWindow = windows[0];
+            // Prefer the focused window; fall back to the first window
+            const mainWindow = windows.find((w: any) => w.isFocused()) || windows[0];
             const result = await mainWindow.webContents.executeJavaScript(js, true);
             return result;
         } catch (error: any) {
@@ -121,6 +218,14 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         if (this._toggles.yes) { matchers.push(`'yes'`); }
         if (this._toggles.run) { matchers.push(`'run'`); }
         if (this._toggles.retry) { matchers.push(`'retry'`); }
+
+        // Add profile-specific extra matchers
+        for (const extra of (this._profile.extraMatchers || [])) {
+            if (!matchers.includes(`'${extra}'`)) { matchers.push(`'${extra}'`); }
+        }
+
+        // Build exclude list from profile
+        const excludeMatchers = this._profile.excludeMatchers || ['always run', 'always allow', 'always deny'];
 
         // If no toggles are on, don't scan
         if (matchers.length === 0) {
@@ -153,10 +258,12 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                             }
                         }
 
-                        // Exclude "Always Run" button (ourselves!)
-                        var isExcluded = allText.indexOf('always run') !== -1 
-                            || allText.indexOf('always allow') !== -1
-                            || allText.indexOf('always deny') !== -1;
+                        // Exclude based on profile exclude list
+                        var excludes = [${excludeMatchers.map(e => `'${e}'`).join(',')}];
+                        var isExcluded = false;
+                        for (var e = 0; e < excludes.length; e++) {
+                            if (allText.indexOf(excludes[e]) !== -1) { isExcluded = true; break; }
+                        }
 
                         // Must be visible, enabled, and not already clicked
                         if (isTarget && !isExcluded 
@@ -281,7 +388,6 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             if (resultStr) {
                 const result = JSON.parse(resultStr);
                 
-                // Send results to the webview panel
                 this._postToWebview({
                     command: 'scanResult',
                     clicked: result.clicked,
@@ -293,9 +399,19 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                     console.log(`[Always Run] Clicked ${result.clicked} button(s):`, 
                         result.found.map((b: any) => b.text).join(', '));
                 }
+            } else {
+                // Null means executeJavaScript failed — tell the webview
+                this._postToWebview({
+                    command: 'scanError',
+                    message: 'Could not access the editor window. Make sure the Antigravity IDE is in focus.'
+                });
             }
         } catch (error: any) {
             console.error('[Always Run] Scan cycle error:', error.message);
+            this._postToWebview({
+                command: 'scanError',
+                message: error.message
+            });
         }
     }
 
@@ -334,6 +450,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         <div class="panel-header">
             <span class="panel-icon">🎯</span>
             <span class="panel-title">Antigravity Always Run</span>
+            <span class="project-badge" id="project-badge">◆ Generic</span>
             <span class="status-dot" id="status-dot"></span>
         </div>
 

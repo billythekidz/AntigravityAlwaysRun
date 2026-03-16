@@ -27,6 +27,7 @@
     const logContainer = document.getElementById('log-container');
     const clearLogBtn = document.getElementById('clear-log-btn');
     const scanInfo = document.getElementById('scan-info');
+    const projectBadge = document.getElementById('project-badge');
 
     // Toggle checkboxes
     const toggleYes = document.getElementById('toggle-yes');
@@ -150,6 +151,24 @@
                     }
                 }
                 // No log for empty scan cycles — user doesn't need to see them
+                break;
+
+            case 'scanError':
+                addLog('⚠️ Scan error: ' + message.message, 'warning');
+                break;
+
+            case 'projectProfile':
+                var p = message.profile;
+                if (projectBadge) {
+                    projectBadge.textContent = p.emoji + ' ' + p.label;
+                    projectBadge.title = p.description;
+                }
+                // Apply default toggles from profile
+                toggleYes.checked = p.defaultToggles.yes;
+                toggleRun.checked = p.defaultToggles.run;
+                toggleRetry.checked = p.defaultToggles.retry;
+                sendToggleState();
+                addLog('🔍 Project detected: ' + p.emoji + ' ' + p.label, 'info');
                 break;
         }
     });
