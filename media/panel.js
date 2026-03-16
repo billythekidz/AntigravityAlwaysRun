@@ -177,6 +177,13 @@
                 sendToggleState();
                 addLog('🔍 Project detected: ' + p.emoji + ' ' + p.label + (p._workspace ? ' (' + p._workspace.split('\\').pop() + ')' : ''), 'info');
                 break;
+
+            case 'manualScript':
+                var codeEl = document.getElementById('setup-script-code');
+                if (codeEl && message.script) {
+                    codeEl.textContent = message.script;
+                }
+                break;
         }
     });
 
@@ -199,6 +206,46 @@
                 vscode.postMessage({ command: 'openExternal', url: url });
             }
         });
+    });
+
+    // ==================== MANUAL SETUP PANEL ====================
+    var setupToggle = document.getElementById('setup-toggle');
+    var setupBody = document.getElementById('setup-body');
+    var setupChevron = document.getElementById('setup-chevron');
+    var setupOpenBtn = document.getElementById('setup-open-devtools');
+    var setupCopyBtn = document.getElementById('setup-copy-btn');
+    var setupScriptCode = document.getElementById('setup-script-code');
+
+    setupToggle.addEventListener('click', function () {
+        setupBody.classList.toggle('hidden');
+        setupChevron.classList.toggle('collapsed');
+        // Request script from extension host when opening
+        if (!setupBody.classList.contains('hidden')) {
+            vscode.postMessage({ command: 'requestManualScript' });
+        }
+    });
+
+    setupOpenBtn.addEventListener('click', function () {
+        vscode.postMessage({ command: 'openDevTools' });
+        addLog('🔧 Opening DevTools...', 'info');
+    });
+
+    setupCopyBtn.addEventListener('click', function () {
+        var code = setupScriptCode.textContent;
+        if (code && code !== 'Click "Start Auto" first to generate the script.') {
+            navigator.clipboard.writeText(code).then(function () {
+                setupCopyBtn.textContent = '✅ Copied!';
+                addLog('📋 Script copied to clipboard', 'success');
+                setTimeout(function () { setupCopyBtn.textContent = '📋 Copy'; }, 2000);
+            }).catch(function () {
+                // Fallback
+                vscode.postMessage({ command: 'copyScript', script: code });
+                setupCopyBtn.textContent = '✅ Copied!';
+                setTimeout(function () { setupCopyBtn.textContent = '📋 Copy'; }, 2000);
+            });
+        } else {
+            addLog('⚠️ Click "Start Auto" first to generate the script', 'warning');
+        }
     });
 
     // ==================== SCAN INTERVAL CONTROL ====================

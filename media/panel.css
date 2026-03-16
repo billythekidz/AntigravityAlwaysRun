@@ -136,6 +136,133 @@ body {
     color: var(--vscode-textLink-activeForeground, #4ec9b0);
 }
 
+/* ── Manual Setup Banner ── */
+.setup-banner {
+    background: rgba(0, 122, 204, 0.08);
+    border: 1px solid rgba(0, 122, 204, 0.3);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.setup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 11px;
+    color: var(--vscode-textLink-foreground, #007acc);
+    user-select: none;
+}
+
+.setup-header:hover {
+    background: rgba(0, 122, 204, 0.1);
+}
+
+.setup-body {
+    padding: 0 10px 10px 10px;
+    color: var(--vscode-descriptionForeground, #999);
+}
+
+.setup-body.hidden {
+    display: none;
+}
+
+.setup-step {
+    display: flex;
+    gap: 8px;
+    margin: 6px 0;
+    align-items: flex-start;
+}
+
+.step-num {
+    min-width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--vscode-textLink-foreground, #007acc);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.step-text {
+    flex: 1;
+}
+
+.setup-code-wrap {
+    position: relative;
+    margin: 6px 0;
+}
+
+.setup-code {
+    background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.2));
+    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-family: var(--vscode-editor-font-family, 'Consolas', monospace);
+    font-size: 10px;
+    color: var(--vscode-foreground);
+    word-break: break-all;
+    max-height: 80px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
+
+.setup-copy-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: var(--vscode-button-background, #007acc);
+    color: var(--vscode-button-foreground, #fff);
+    border: none;
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 10px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.setup-copy-btn:hover {
+    background: var(--vscode-button-hoverBackground, #0062a3);
+}
+
+.setup-open-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--vscode-button-secondaryBackground, rgba(255,255,255,0.1));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.15));
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    margin: 4px 0;
+}
+
+.setup-open-btn:hover {
+    background: var(--vscode-button-secondaryHoverBackground, rgba(255,255,255,0.15));
+}
+
+kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.2));
+    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.15));
+    border-radius: 3px;
+    color: var(--vscode-foreground);
+}
+
 /* ── Button Toggles ── */
 .toggles-section {
     display: flex;

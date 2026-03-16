@@ -56,6 +56,25 @@ After the first injection, all subsequent **Start / Stop** actions only toggle c
 
 ---
 
+## 🔧 Manual Setup (if auto-inject fails)
+
+On some platforms (especially macOS), the automatic injection may fail due to OS permission restrictions. You can manually inject the script:
+
+1. **Open the side panel** → click **▶️ Start Auto** (this generates the script)
+2. Expand the **🔧 Manual Setup** section in the panel
+3. Click **🔧 Open DevTools** button
+4. Click the **Console** tab in DevTools
+5. If you see _"Warning: Don't paste code..."_, type `allow pasting` and press Enter
+6. Click **📋 Copy** to copy the injection script
+7. Paste into the Console:
+   - **Windows / Linux:** `Ctrl+V`
+   - **macOS:** `⌘+V`
+   - Or right-click → Paste
+8. Press **Enter** — you should see `[AlwaysRun] Injected.` in the console
+9. DevTools will close automatically once confirmed
+
+---
+
 ## 🛡️ Transparency & Security
 
 We understand that "opening DevTools and pasting a script" may raise concerns. We want to be fully transparent:

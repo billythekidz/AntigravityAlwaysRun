@@ -88,6 +88,35 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 case 'openExternal':
                     vscode.env.openExternal(vscode.Uri.parse(message.url));
                     break;
+                case 'openDevTools':
+                    vscode.commands.executeCommand('workbench.action.toggleDevTools');
+                    break;
+                case 'requestManualScript':
+                    // Generate and send the injection script to the webview
+                    this._configServer.start().then(port => {
+                        const matchers: string[] = [];
+                        if (this._toggles.yes)    { matchers.push('yes'); }
+                        if (this._toggles.run)    { matchers.push('run'); }
+                        if (this._toggles.retry)  { matchers.push('retry'); }
+                        if (this._toggles.accept) { matchers.push('accept'); }
+                        const liveCfg = {
+                            active: true,
+                            matchers,
+                            excludes: DEFAULT_EXCLUDES,
+                            intervalMs: this._scanIntervalMs
+                        };
+                        this._configServer.update(liveCfg);
+                        const script = this._buildInjectScript(port, liveCfg);
+                        this._postToWebview({ command: 'manualScript', script });
+                    }).catch(() => {
+                        this._postToWebview({ command: 'manualScript', script: '// Error: could not start config server' });
+                    });
+                    break;
+                case 'copyScript':
+                    if (message.script) {
+                        vscode.env.clipboard.writeText(message.script);
+                    }
+                    break;
             }
         });
     }
@@ -477,6 +506,50 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 <p class="warning-tip">${isVi
                     ? '💡 Khuyến nghị: sử dụng gói <strong>Google AI Ultra</strong> để tránh hết quota. <a href="#" class="ext-link" data-url="https://gamikey.com/nang-cap-google-ai-tro-ly-thong-minh-member-slot/?ref=theaux">Mua giá chiết khấu tại đây</a>. Hãy thiết lập <strong>rules</strong> cho agent hợp lý trước khi bật auto.'
                     : '💡 Recommended: use <strong>Google AI Ultra</strong> plan to avoid running out of quota. <a href="#" class="ext-link" data-url="https://gamikey.com/nang-cap-google-ai-tro-ly-thong-minh-member-slot/?ref=theaux">Get it at a discount here</a>. Set up proper <strong>rules</strong> for the agent before enabling auto mode.'}</p>
+            </div>
+        </div>
+
+        <!-- Manual Setup -->
+        <div class="setup-banner" id="setup-banner">
+            <div class="setup-header" id="setup-toggle">
+                <span>🔧 Manual Setup (if auto-inject fails)</span>
+                <span class="warning-chevron collapsed" id="setup-chevron">▾</span>
+            </div>
+            <div class="setup-body hidden" id="setup-body">
+                <div class="setup-step">
+                    <span class="step-num">1</span>
+                    <span class="step-text">Open DevTools Console:<br>
+                        <button class="setup-open-btn" id="setup-open-devtools">🔧 Open DevTools</button>
+                    </span>
+                </div>
+                <div class="setup-step">
+                    <span class="step-num">2</span>
+                    <span class="step-text">Click the <strong>Console</strong> tab in DevTools.</span>
+                </div>
+                <div class="setup-step">
+                    <span class="step-num">3</span>
+                    <span class="step-text">If prompted <em>"allow pasting"</em>, type <kbd>allow pasting</kbd> and press <kbd>Enter</kbd>.</span>
+                </div>
+                <div class="setup-step">
+                    <span class="step-num">4</span>
+                    <span class="step-text">Copy the script below:</span>
+                </div>
+                <div class="setup-code-wrap">
+                    <pre class="setup-code" id="setup-script-code">Click "Start Auto" first to generate the script.</pre>
+                    <button class="setup-copy-btn" id="setup-copy-btn">📋 Copy</button>
+                </div>
+                <div class="setup-step">
+                    <span class="step-num">5</span>
+                    <span class="step-text">Paste into Console:<br>
+                        <strong>Windows/Linux:</strong> <kbd>Ctrl</kbd>+<kbd>V</kbd> &nbsp;
+                        <strong>macOS:</strong> <kbd>⌘</kbd>+<kbd>V</kbd><br>
+                        Or <em>right-click → Paste</em>
+                    </span>
+                </div>
+                <div class="setup-step">
+                    <span class="step-num">6</span>
+                    <span class="step-text">Press <kbd>Enter</kbd>. You should see <code>[AlwaysRun] Injected.</code> in the console. DevTools will close automatically.</span>
+                </div>
             </div>
         </div>
 
