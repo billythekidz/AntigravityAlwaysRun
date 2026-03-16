@@ -151,16 +151,17 @@ def main():
     run(f"git tag {tag_name}", cwd=PROJECT_ROOT)
     run(f"git push origin {tag_name} --no-verify", cwd=PROJECT_ROOT)
 
-    # 7. GitHub Release
-    warn("Creating GitHub Release...")
+    # 7. GitHub Release (publish VSIX to the PUBLIC repo for user trust/visibility)
+    warn("Creating GitHub Release on PUBLIC repo...")
     relative_vsix = vsix_name
     run(
         f'gh release create "{tag_name}" "{relative_vsix}" '
+        f'--repo billythekidz/AntigravityAlwaysRun '
         f'--title "{release_title}" '
         f'--notes "{release_notes}"',
         cwd=PROJECT_ROOT
     )
-    ok("GitHub Release created!")
+    ok("GitHub Release created on public repo!")
 
     info(f"RELEASE COMPLETE: Antigravity Always Run v{new_version} is now LIVE!")
 

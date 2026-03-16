@@ -199,10 +199,19 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 return null;
             }
 
-            // Prefer the focused window; fall back to the first window
-            const mainWindow = windows.find((w: any) => w.isFocused()) || windows[0];
-            const result = await mainWindow.webContents.executeJavaScript(js, true);
-            return result;
+            // Try each window until one accepts our script.
+            // isFocused() is unreliable from the extension host, so we try all.
+            for (const win of windows) {
+                try {
+                    const result = await win.webContents.executeJavaScript(js, true);
+                    if (result !== undefined && result !== null) {
+                        return result;
+                    }
+                } catch {
+                    // This window didn't work, try the next
+                }
+            }
+            return null;
         } catch (error: any) {
             console.error('[Always Run] executeJavaScript failed:', error.message);
             return null;
