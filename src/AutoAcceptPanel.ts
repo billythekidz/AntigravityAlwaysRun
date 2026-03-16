@@ -31,7 +31,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     private _configServer: ConfigServer;
     private _scriptInjected = false;
 
-    private _toggles = { yes: true, run: true, retry: true, accept: true };
+    private _toggles = { yes: true, run: true, retry: true, accept: true, allow: true };
 
     constructor(private readonly _extensionUri: vscode.Uri) {
         this._native = new NativeClickHandler();
@@ -57,7 +57,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
         // Send project name (folder name) to badge
-        this._postToWebview({ command: 'projectProfile', profile: { projectName: getProjectName(), label: getProjectName(), description: '', emoji: '📁', defaultToggles: { yes: true, run: true, retry: true, accept: true } } });
+        this._postToWebview({ command: 'projectProfile', profile: { projectName: getProjectName(), label: getProjectName(), description: '', emoji: '📁', defaultToggles: { yes: true, run: true, retry: true, accept: true, allow: true } } });
 
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage((message) => {
@@ -99,6 +99,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                         if (this._toggles.run)    { matchers.push('run'); }
                         if (this._toggles.retry)  { matchers.push('retry'); }
                         if (this._toggles.accept) { matchers.push('accept'); }
+                        if (this._toggles.allow)  { matchers.push('allow this conversation'); }
                         const liveCfg = {
                             active: true,
                             matchers,
@@ -205,6 +206,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         if (this._toggles.run)    { matchers.push('run'); }
         if (this._toggles.retry)  { matchers.push('retry'); }
         if (this._toggles.accept) { matchers.push('accept'); }
+        if (this._toggles.allow)  { matchers.push('allow this conversation'); }
         const cfg = {
             active:     this._isRunning,
             matchers,
@@ -464,6 +466,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         if (this._toggles.run)    { matchers.push('run'); }
         if (this._toggles.retry)  { matchers.push('retry'); }
         if (this._toggles.accept) { matchers.push('accept'); }
+        if (this._toggles.allow)  { matchers.push('allow this conversation'); }
         const liveCfg = {
             active: true,
             matchers,
@@ -670,6 +673,13 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 <span class="toggle-label">☑️ Accept</span>
                 <label class="toggle-switch">
                     <input type="checkbox" id="toggle-accept" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="toggle-row">
+                <span class="toggle-label">🔓 Allow</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="toggle-allow" checked>
                     <span class="toggle-slider"></span>
                 </label>
             </div>

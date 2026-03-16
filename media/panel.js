@@ -34,6 +34,7 @@
     const toggleRun    = document.getElementById('toggle-run');
     const toggleRetry  = document.getElementById('toggle-retry');
     const toggleAccept = document.getElementById('toggle-accept');
+    const toggleAllow  = document.getElementById('toggle-allow');
 
     // ==================== LOGGING ====================
     function addLog(text, type) {
@@ -76,7 +77,8 @@
                 yes:    toggleYes.checked,
                 run:    toggleRun.checked,
                 retry:  toggleRetry.checked,
-                accept: toggleAccept.checked
+                accept: toggleAccept.checked,
+                allow:  toggleAllow.checked
             }
         });
     }
@@ -110,6 +112,10 @@
     });
     toggleRetry.addEventListener('change', function () {
         addLog('Retry: ' + (toggleRetry.checked ? 'ON' : 'OFF'), toggleRetry.checked ? 'success' : 'warning');
+        sendToggleState();
+    });
+    toggleAllow.addEventListener('change', function () {
+        addLog('Allow: ' + (toggleAllow.checked ? 'ON' : 'OFF'), toggleAllow.checked ? 'success' : 'warning');
         sendToggleState();
     });
 
@@ -170,10 +176,11 @@
                     projectBadge.title = p.projectName || p.description;
                 }
                 // Apply default toggles from profile
-                var dt = p.defaultToggles || { yes: true, run: true, retry: true, accept: true };
+                var dt = p.defaultToggles || { yes: true, run: true, retry: true, accept: true, allow: true };
                 toggleYes.checked = dt.yes;
                 toggleRun.checked = dt.run;
                 toggleRetry.checked = dt.retry;
+                if (toggleAllow) { toggleAllow.checked = dt.allow !== false; }
                 sendToggleState();
                 addLog('🔍 Project detected: ' + p.emoji + ' ' + p.label + (p._workspace ? ' (' + p._workspace.split('\\').pop() + ')' : ''), 'info');
                 break;
