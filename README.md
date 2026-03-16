@@ -2,6 +2,10 @@
 
 A VS Code / Antigravity IDE extension that auto-clicks **Accept**, **Run**, **Yes**, **Retry**, **Approve**, and **Confirm** buttons — enabling fully autonomous agent operation.
 
+<a href='https://ko-fi.com/Y8Y61ABMM' target='_blank'>
+  <img width='200' src='https://storage.ko-fi.com/cdn/kofi2.png?v=6' alt='Support me on Ko-fi' />
+</a>
+
 ## Features
 
 - 🎯 **Activity bar icon** — click to open the side panel
@@ -33,10 +37,34 @@ npx -y @vscode/vsce package --no-dependencies
 
 1. Click the 🎯 icon in the **activity bar** (left sidebar)
 2. The side panel opens with controls and a risk warning
-3. Click **▶️ Start Auto** — the script is copied to clipboard
-4. Paste into **DevTools console** (`F12`) to activate scanning
-5. Toggle individual buttons (Yes / Run / Retry) as needed
-6. Click **🛑 Stop** to halt the auto-clicker
+3. Click **▶️ Start Auto** — the extension automatically opens DevTools, injects the scanner script, and closes DevTools
+4. Toggle individual buttons (Yes / Run / Retry / Accept) as needed
+5. Click **🛑 Stop** to pause — click **▶️ Start** again to resume (no re-injection needed)
+
+<a href='https://ko-fi.com/Y8Y61ABMM' target='_blank'>
+  <img width='300' src='https://storage.ko-fi.com/cdn/kofi2.png?v=6' alt='Support me on Ko-fi' />
+</a>
+
+## 🔍 How It Works — Why DevTools?
+
+When you click **Start Auto** for the first time, the extension briefly opens DevTools, pastes a small JavaScript scanner into the console, and closes DevTools. **This is the only way to make it work.** Here's why:
+
+- **VS Code extensions run in a sandbox** — they cannot directly access or interact with the editor's UI buttons (like "Yes", "Run", "Retry" dialogs). The extension API simply does not expose these elements.
+- **Chrome DevTools Protocol (CDP)** would be an alternative, but it requires special launcher arguments (`--remote-debugging-port`) which are not available by default in Antigravity IDE or VS Code.
+- **The injected script** is a simple DOM scanner that runs every few seconds, finds matching buttons, and clicks them. It communicates with the extension via a local HTTP server (`127.0.0.1`, random port) to receive config updates (start/stop, toggle changes) in real time.
+
+After the first injection, all subsequent **Start / Stop** actions only toggle config — no DevTools interaction is needed again.
+
+## 🛡️ Transparency & Security
+
+We understand that "opening DevTools and pasting a script" may sound suspicious. We want to be fully transparent:
+
+- **📖 100% Open Source** — The entire source code is publicly available. You can inspect every line of the injected script in [`AutoAcceptPanel.ts`](src/AutoAcceptPanel.ts) (search for `_buildInjectScript`).
+- **🔒 No network calls** — The scanner only communicates with `127.0.0.1` (your own machine). Zero data is sent to any external server.
+- **👀 You can verify** — Open DevTools (`Help > Toggle Developer Tools`) anytime and check the console. You'll see `[AlwaysRun] Scanning...` logs and `[AlwaysRun] Clicked: ...` entries for every action taken.
+- **🧹 Nothing persists** — Stop the extension and reload the window — the script is gone. Nothing is installed, modified, or saved outside of the extension's normal operation.
+
+> **Repository:** [github.com/billythekidz/AntigravityAlwaysRun](https://github.com/billythekidz/AntigravityAlwaysRun)
 
 ## ⚠️ Warning
 

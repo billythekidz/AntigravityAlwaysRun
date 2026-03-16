@@ -139,7 +139,7 @@ def main():
     ok(f"Packaged: {vsix_name}")
 
     # ── PUBLISH ENABLED FLAG ──────────────────────────────────
-    PUBLISH_ENABLED = False  # Set to True when ready to publish
+    PUBLISH_ENABLED = True  # Set to True when ready to publish
     # ─────────────────────────────────────────────────────────
 
     if PUBLISH_ENABLED:
