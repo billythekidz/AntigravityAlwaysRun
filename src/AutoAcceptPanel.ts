@@ -312,15 +312,46 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     } catch(e) {}
   }
 
-  // Scroll ALL scrollable containers to bottom to force virtualized buttons into DOM
+  // Scroll only the AGENT/CHAT panel to bottom (not code editor or other panels)
   function scrollToBottom() {
     try {
+      // Find the agent/chat panel container — try common Antigravity/VS Code selectors
+      var agentSelectors = [
+        '.aichat-widget',                           // Antigravity agent chat widget
+        '.interactive-session',                      // VS Code interactive session
+        '.chat-widget',                              // Generic chat widget
+        '[class*="agent"][class*="panel"]',           // Agent panel variants
+        '[class*="chat"][class*="container"]',        // Chat container variants
+        '.monaco-scrollable-element.chat',            // Monaco chat scrollable
+        '#workbench\\\\.parts\\\\.auxiliarybar'       // Fallback: auxiliary sidebar
+      ];
+
+      var agentRoot = null;
+      for (var s = 0; s < agentSelectors.length; s++) {
+        try {
+          agentRoot = document.querySelector(agentSelectors[s]);
+          if (agentRoot) break;
+        } catch(e) {}
+      }
+
+      // If no specific agent panel found, try the auxiliary bar (side panel where agent lives)
+      if (!agentRoot) {
+        try {
+          var auxBar = document.querySelector('.part.auxiliarybar') ||
+                       document.querySelector('[id*="auxiliarybar"]') ||
+                       document.querySelector('.part.sidebar');
+          if (auxBar) agentRoot = auxBar;
+        } catch(e) {}
+      }
+
+      // Only scroll within the agent panel scope
+      if (!agentRoot) return;
+
       function scrollAllIn(root) {
         try {
           var els = root.querySelectorAll('*');
           for (var i = 0; i < els.length; i++) {
             var el = els[i];
-            // Check if element is scrollable (has overflow and content exceeds viewport)
             if (el.scrollHeight > el.clientHeight + 10) {
               var ov = '';
               try { ov = el.ownerDocument.defaultView.getComputedStyle(el).overflowY; } catch(e) {}
@@ -328,16 +359,12 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 el.scrollTop = el.scrollHeight;
               }
             }
-            // Recurse into shadow DOM
             if (el.shadowRoot) { scrollAllIn(el.shadowRoot); }
           }
         } catch(e) {}
       }
-      scrollAllIn(document);
-      // Also check iframes
-      document.querySelectorAll('iframe').forEach(function(f) {
-        try { scrollAllIn(f.contentDocument || f.contentWindow.document); } catch(e) {}
-      });
+
+      scrollAllIn(agentRoot);
     } catch(e) {}
   }
 
