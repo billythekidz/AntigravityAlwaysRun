@@ -30,6 +30,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 
 # ─── Resolve paths ───────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -126,6 +127,30 @@ def main():
 
     info(f"Commit: {commit_msg}")
     info(f"Release title: {release_title}")
+
+    # 4. Update CHANGELOG.md
+    changelog_path = os.path.join(EXTENSION_DIR, "CHANGELOG.md")
+    today = datetime.now().strftime("%Y-%m-%d")
+    new_entry = (
+        f"\n## [{new_version}] — {today}\n"
+        f"### Changed\n"
+        f"- {description}\n"
+    )
+    if os.path.isfile(changelog_path):
+        with open(changelog_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        # Insert new entry after the "# Changelog" header line
+        header_end = content.find("\n\n")
+        if header_end != -1:
+            content = content[:header_end] + "\n" + new_entry + content[header_end:]
+        else:
+            content = content + "\n" + new_entry
+        with open(changelog_path, "w", encoding="utf-8") as f:
+            f.write(content)
+    else:
+        with open(changelog_path, "w", encoding="utf-8") as f:
+            f.write(f"# Changelog\n\nAll notable changes to **Antigravity Always Run** will be documented in this file.\n{new_entry}")
+    ok(f"CHANGELOG.md updated with v{new_version}")
 
     # 4. Package extension
     warn("Packaging Extension...")
