@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.71] — 2026-03-17
+### Changed
+- chore: rename extension displayName to Antigravity Auto Run Always Click
+
+
 ## [1.0.70] — 2026-03-17
 ### Changed
 - feat: add CHANGELOG.md to extension package for Open VSX change history

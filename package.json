@@ -1,8 +1,8 @@
 {
     "name": "antigravity-always-run",
-    "displayName": "Antigravity Run Always",
+    "displayName": "Antigravity Auto Run Always Click",
     "description": "Always Run — auto-accept button clicker for Antigravity IDE. Scans iframes and webviews for Accept, Run, Approve, or Confirm buttons.",
-    "version": "1.0.70",
+    "version": "1.0.71",
     "publisher": "antigravity-unity",
     "license": "MIT",
     "icon": "assets/icon.png",
