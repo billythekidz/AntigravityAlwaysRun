@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { AutoAcceptPanelProvider } from './AutoAcceptPanel';
-
 export function activate(context: vscode.ExtensionContext) {
     console.log('[Always Run] Extension activated');
 

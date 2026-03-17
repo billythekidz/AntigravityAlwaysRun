@@ -2,7 +2,7 @@
     "name": "antigravity-always-run",
     "displayName": "Antigravity Run Always",
     "description": "Always Run — auto-accept button clicker for Antigravity IDE. Scans iframes and webviews for Accept, Run, Approve, or Confirm buttons.",
-    "version": "1.0.67",
+    "version": "1.0.68",
     "publisher": "antigravity-unity",
     "license": "MIT",
     "icon": "assets/icon.png",
@@ -57,6 +57,11 @@
             {
                 "command": "antigravity-always-run.injectScript",
                 "title": "Inject Always Run Script",
+                "category": "Always Run"
+            },
+            {
+                "command": "always-run.testPesosz",
+                "title": "Test Pesosz Commands (Diagnostic)",
                 "category": "Always Run"
             }
         ]

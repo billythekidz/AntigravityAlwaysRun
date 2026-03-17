@@ -38,6 +38,7 @@ export class ConfigServer {
 
     private _onSignal: (() => void) | null = null;
     private _onClicked: ((data: any) => void) | null = null;
+    private _signalReceived = false;
 
     constructor(projectName = '') {
         this._projectName = projectName;
@@ -84,6 +85,7 @@ export class ConfigServer {
             } catch {}
             res.writeHead(200, { 'Content-Type': 'text/plain' });
             res.end('ok');
+            this._signalReceived = true;
             if (this._onSignal) { this._onSignal(); }
             return;
         }
@@ -197,6 +199,12 @@ export class ConfigServer {
 
     get config(): Readonly<ScanConfig> { return this._config; }
     get port(): number { return this._port; }
+
+    /** Check if the injected script has sent its /signal POST */
+    get hasScriptSignal(): boolean { return this._signalReceived; }
+
+    /** Reset signal flag (call before re-injection) */
+    resetSignal() { this._signalReceived = false; this._lastHeartbeat = 0; }
 
     /** Reattach to an existing running server (skip creating new one) */
     attachToPort(port: number) {

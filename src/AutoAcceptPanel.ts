@@ -4,8 +4,6 @@ import * as path from 'path';
 import * as os from 'os';
 import { NativeClickHandler } from './NativeClickHandler';
 import { ConfigServer } from './ConfigServer';
-
-
 /** Returns the workspace folder name (used as badge label and config key). */
 function getProjectName(): string {
     const folders = vscode.workspace.workspaceFolders;
@@ -71,6 +69,9 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'stop':
                     this.stopAutoScan();
+                    break;
+                case 'silentMode':
+                    // Feature removed
                     break;
                 case 'toggleUpdate':
                     this._toggles = message.toggles;
@@ -422,6 +423,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         if (this._toggles.run) { matchers.push('run'); }
         if (this._toggles.retry) { matchers.push('retry'); }
         if (this._toggles.accept) { matchers.push('accept'); }
+        if (this._toggles.allow) { matchers.push('allow'); }
         const liveCfg = {
             active: true,
             matchers,
@@ -438,8 +440,23 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                 found: [{ text: data.text || '?', source: data.source || 'unknown' }]
             });
         });
-        this._configServer.start().then(port => {
+        this._configServer.start().then(async port => {
             const script = this._buildInjectScript(port, liveCfg);
+
+            // === Injection: Open DevTools via VS Code API, then use Native Handler to paste ===
+            this._postToWebview({ command: 'diagLog', text: '🔧 Opening DevTools via API...', logType: 'info' });
+            this._configServer.resetSignal();
+            
+            try {
+                // Directly trigger the command to open DevTools
+                await vscode.commands.executeCommand('workbench.action.toggleDevTools');
+                // Give it a moment to start opening before we look for the window
+                await new Promise(r => setTimeout(r, 600));
+            } catch (err) {
+                this._postToWebview({ command: 'diagLog', text: 'Failed to execute toggleDevTools command.', logType: 'error' });
+            }
+
+            this._postToWebview({ command: 'diagLog', text: '📋 Pasting script via native handler...', logType: 'info' });
 
             // macOS: use VS Code API to avoid Accessibility permission requirements
             if (os.platform() === 'darwin') {
@@ -458,9 +475,13 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             }
 
             // Windows / Linux: use NativeClickHandler (PowerShell / xdotool)
-            const encoded = Buffer.from(script).toString('base64');
+            // Fix 17s Delay: Put script on clipboard using VS Code API directly,
+            // avoiding passing a massive 6000-char string to the powershell.exe command line.
+            await vscode.env.clipboard.writeText(script);
+            this._postToWebview({ command: 'diagLog', text: '📋 Script copied to clipboard', logType: 'info' });
+
             const projectName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
-            this._native.openDevToolsAndInject(encoded, projectName).then(result => {
+            this._native.openDevToolsAndInject(projectName).then(result => {
                 if (result.error) {
                     this._postToWebview({ command: 'scanError', message: result.error });
                     this._isRunning = false;
