@@ -166,11 +166,11 @@
                         addLog('🖱️ Clicked: "' + btn.text + '" (' + btn.source + ')', 'click');
                         // Match type from button text
                         var t = (btn.text || '').toLowerCase();
-                        if (t.indexOf('allow this conversation') !== -1) { typeCounts.allow++; if(countAllow) countAllow.textContent = typeCounts.allow; }
-                        else if (t.indexOf('yes') !== -1)    { typeCounts.yes++;    if(countYes)    countYes.textContent = typeCounts.yes; }
-                        else if (t.indexOf('run') !== -1)    { typeCounts.run++;    if(countRun)    countRun.textContent = typeCounts.run; }
-                        else if (t.indexOf('retry') !== -1)  { typeCounts.retry++;  if(countRetry)  countRetry.textContent = typeCounts.retry; }
-                        else if (t.indexOf('accept') !== -1) { typeCounts.accept++; if(countAccept) countAccept.textContent = typeCounts.accept; }
+                        if (t.indexOf('allow this conversation') !== -1) { typeCounts.allow++; if(countAllow) countAllow.textContent = typeCounts.allow + ' times'; }
+                        else if (t.indexOf('yes') !== -1)    { typeCounts.yes++;    if(countYes)    countYes.textContent = typeCounts.yes + ' times'; }
+                        else if (t.indexOf('run') !== -1)    { typeCounts.run++;    if(countRun)    countRun.textContent = typeCounts.run + ' times'; }
+                        else if (t.indexOf('retry') !== -1)  { typeCounts.retry++;  if(countRetry)  countRetry.textContent = typeCounts.retry + ' times'; }
+                        else if (t.indexOf('accept') !== -1) { typeCounts.accept++; if(countAccept) countAccept.textContent = typeCounts.accept + ' times'; }
                     }
                 }
                 break;
