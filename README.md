@@ -2,6 +2,8 @@
 
 Auto-clicks **Yes**, **Run**, **Retry**, **Accept**, **Approve**, and **Confirm** buttons so your AI agent can work fully autonomously — no human babysitting required.
 
+> **💡 Zero Setup Required:** This extension uses a lightweight native macro approach. It does **not** use complex Chrome DevTools Protocol (CDP) solutions, so you do **not** need to create custom launchers or pass special `--remote-debugging-port` flags to the IDE!
+
 <a href='https://ko-fi.com/Y8Y61ABMM' target='_blank'>
   <img width='200' src='https://storage.ko-fi.com/cdn/kofi2.png?v=6' alt='Support me on Ko-fi' />
 </a>
