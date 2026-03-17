@@ -248,7 +248,8 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
       for (var i = 0; i < btns.length; i++) {
         var b = btns[i];
         var txt = ((b.textContent||'')+(b.getAttribute('aria-label')||'')+(b.getAttribute('title')||'')).toLowerCase().trim();
-        if (!txt || b.offsetWidth===0 || b.offsetHeight===0 || b.disabled || b.dataset.agyClicked) { continue; }
+        var cs = b.ownerDocument.defaultView ? b.ownerDocument.defaultView.getComputedStyle(b) : null;
+        if (!txt || b.disabled || b.dataset.agyClicked || (cs && (cs.display==='none' || cs.visibility==='hidden'))) { continue; }
         if (window.__agyConfig.excludes.some(function(e){return txt.indexOf(e)!==-1;})) { continue; }
         if (window.__agyConfig.matchers.some(function(m){return txt.indexOf(m)!==-1;})) {
           b.dataset.agyClicked = '1';
