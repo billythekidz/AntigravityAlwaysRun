@@ -269,34 +269,32 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     } catch(e) {}
   }
 
-  // Scroll chat containers to bottom to force virtualized buttons into DOM
+  // Scroll ALL scrollable containers to bottom to force virtualized buttons into DOM
   function scrollToBottom() {
     try {
-      // VS Code chat panel scrollable containers
-      var selectors = [
-        '.monaco-list-rows',
-        '.chat-widget .monaco-scrollable-element',
-        '[role="list"]',
-        '.interactive-list',
-        '.scm-editor-container'
-      ];
-      function doScroll(root) {
-        selectors.forEach(function(sel) {
-          try {
-            var els = root.querySelectorAll(sel);
-            els.forEach(function(el) {
-              if (el.scrollHeight > el.clientHeight) {
+      function scrollAllIn(root) {
+        try {
+          var els = root.querySelectorAll('*');
+          for (var i = 0; i < els.length; i++) {
+            var el = els[i];
+            // Check if element is scrollable (has overflow and content exceeds viewport)
+            if (el.scrollHeight > el.clientHeight + 10) {
+              var ov = '';
+              try { ov = el.ownerDocument.defaultView.getComputedStyle(el).overflowY; } catch(e) {}
+              if (ov === 'auto' || ov === 'scroll' || ov === 'overlay') {
                 el.scrollTop = el.scrollHeight;
               }
-            });
-          } catch(e) {}
-        });
+            }
+            // Recurse into shadow DOM
+            if (el.shadowRoot) { scrollAllIn(el.shadowRoot); }
+          }
+        } catch(e) {}
       }
-      doScroll(document);
-      // Also scroll inside shadow DOMs
-      (function sd(root,d){if(d>3)return;try{root.querySelectorAll('*').forEach(function(el){
-        if(el.shadowRoot){doScroll(el.shadowRoot);sd(el.shadowRoot,d+1);}
-      });}catch(e){};})(document,0);
+      scrollAllIn(document);
+      // Also check iframes
+      document.querySelectorAll('iframe').forEach(function(f) {
+        try { scrollAllIn(f.contentDocument || f.contentWindow.document); } catch(e) {}
+      });
     } catch(e) {}
   }
 
