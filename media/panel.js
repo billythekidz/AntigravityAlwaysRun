@@ -36,6 +36,14 @@
     const toggleAccept = document.getElementById('toggle-accept');
     const toggleAllow  = document.getElementById('toggle-allow');
 
+    // Per-type click counters
+    const countYes    = document.getElementById('count-yes');
+    const countRun    = document.getElementById('count-run');
+    const countRetry  = document.getElementById('count-retry');
+    const countAccept = document.getElementById('count-accept');
+    const countAllow  = document.getElementById('count-allow');
+    var typeCounts = { yes: 0, run: 0, retry: 0, accept: 0, allow: 0 };
+
     // ==================== LOGGING ====================
     function addLog(text, type) {
         type = type || 'info';
@@ -152,13 +160,19 @@
                     state.totalClicks += message.clicked;
                     clickCount.textContent = state.totalClicks;
 
-                    // Log each clicked button
+                    // Log each clicked button and increment per-type count
                     for (var i = 0; i < message.found.length; i++) {
                         var btn = message.found[i];
                         addLog('🖱️ Clicked: "' + btn.text + '" (' + btn.source + ')', 'click');
+                        // Match type from button text
+                        var t = (btn.text || '').toLowerCase();
+                        if (t.indexOf('allow this conversation') !== -1) { typeCounts.allow++; if(countAllow) countAllow.textContent = typeCounts.allow; }
+                        else if (t.indexOf('yes') !== -1)    { typeCounts.yes++;    if(countYes)    countYes.textContent = typeCounts.yes; }
+                        else if (t.indexOf('run') !== -1)    { typeCounts.run++;    if(countRun)    countRun.textContent = typeCounts.run; }
+                        else if (t.indexOf('retry') !== -1)  { typeCounts.retry++;  if(countRetry)  countRetry.textContent = typeCounts.retry; }
+                        else if (t.indexOf('accept') !== -1) { typeCounts.accept++; if(countAccept) countAccept.textContent = typeCounts.accept; }
                     }
                 }
-                // No log for empty scan cycles — user doesn't need to see them
                 break;
 
             case 'scanError':

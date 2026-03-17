@@ -288,6 +288,16 @@ kbd {
 
 .toggle-label {
     font-size: 12px;
+    flex: 1;
+}
+
+.toggle-count {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground, #858585);
+    min-width: 24px;
+    text-align: right;
+    margin-right: 8px;
+    font-variant-numeric: tabular-nums;
 }
 
 .toggle-switch {

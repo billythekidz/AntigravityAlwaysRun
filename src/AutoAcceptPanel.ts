@@ -649,6 +649,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             <div class="toggles-header">Auto-click buttons</div>
             <div class="toggle-row">
                 <span class="toggle-label">✅ Yes</span>
+                <span class="toggle-count" id="count-yes">0</span>
                 <label class="toggle-switch">
                     <input type="checkbox" id="toggle-yes" checked>
                     <span class="toggle-slider"></span>
@@ -656,6 +657,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             </div>
             <div class="toggle-row">
                 <span class="toggle-label">▶️ Run</span>
+                <span class="toggle-count" id="count-run">0</span>
                 <label class="toggle-switch">
                     <input type="checkbox" id="toggle-run" checked>
                     <span class="toggle-slider"></span>
@@ -663,6 +665,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             </div>
             <div class="toggle-row">
                 <span class="toggle-label">🔄 Retry</span>
+                <span class="toggle-count" id="count-retry">0</span>
                 <label class="toggle-switch">
                     <input type="checkbox" id="toggle-retry" checked>
                     <span class="toggle-slider"></span>
@@ -670,6 +673,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             </div>
             <div class="toggle-row">
                 <span class="toggle-label">☑️ Accept</span>
+                <span class="toggle-count" id="count-accept">0</span>
                 <label class="toggle-switch">
                     <input type="checkbox" id="toggle-accept" checked>
                     <span class="toggle-slider"></span>
@@ -677,6 +681,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             </div>
             <div class="toggle-row">
                 <span class="toggle-label">🔓 Allow</span>
+                <span class="toggle-count" id="count-allow">0</span>
                 <label class="toggle-switch">
                     <input type="checkbox" id="toggle-allow" checked>
                     <span class="toggle-slider"></span>
