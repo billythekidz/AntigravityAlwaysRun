@@ -25,6 +25,7 @@ the root package.json or modify the parent project in any way.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -138,6 +139,17 @@ def main():
 
     ok(f"Packaged: {vsix_name}")
 
+    # 4b. Compute SHA-256 checksum
+    warn("Computing SHA-256 checksum...")
+    sha256_hash = hashlib.sha256()
+    with open(vsix_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256_hash.update(chunk)
+    vsix_sha256 = sha256_hash.hexdigest()
+    ok(f"SHA-256: {vsix_sha256}")
+    vsix_size_kb = os.path.getsize(vsix_path) / 1024
+    ok(f"Size: {vsix_size_kb:.1f} KB")
+
     # ── PUBLISH ENABLED FLAG ──────────────────────────────────
     PUBLISH_ENABLED = True  # Set to True when ready to publish
     # ─────────────────────────────────────────────────────────
@@ -164,13 +176,30 @@ def main():
         # 7. GitHub Release (publish VSIX to the PUBLIC repo for user trust/visibility)
         warn("Creating GitHub Release on PUBLIC repo...")
         relative_vsix = vsix_name
+        # Build release body with SHA-256
+        release_body = (
+            f"{release_notes}\n\n"
+            f"---\n"
+            f"**Integrity Verification**\n\n"
+            f"| File | SHA-256 | Size |\n"
+            f"| --- | --- | --- |\n"
+            f"| `{vsix_name}` | `{vsix_sha256}` | {vsix_size_kb:.1f} KB |\n\n"
+            f"Verify: `certutil -hashfile {vsix_name} SHA256` (Windows) or `shasum -a 256 {vsix_name}` (macOS/Linux)"
+        )
+        # Write release body to temp file to avoid shell escaping issues
+        release_body_file = os.path.join(EXTENSION_DIR, "_release_body.md")
+        with open(release_body_file, "w", encoding="utf-8") as f:
+            f.write(release_body)
         run(
             f'gh release create "{tag_name}" "{relative_vsix}" '
             f'--repo billythekidz/AntigravityAlwaysRun '
             f'--title "{release_title}" '
-            f'--notes "{release_notes}"',
+            f'--notes-file "{release_body_file}"',
             cwd=PROJECT_ROOT
         )
+        # Cleanup temp file
+        try: os.remove(release_body_file)
+        except: pass
         ok("GitHub Release created on public repo!")
         info(f"RELEASE COMPLETE: Antigravity Always Run v{new_version} is now LIVE!")
     else:

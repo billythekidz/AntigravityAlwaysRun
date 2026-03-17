@@ -12,3 +12,5 @@ node_modules/@types/**
 node_modules/esbuild/**
 antigravity-sync/**
 _backup/**
+_release_body.md
+.github/**
