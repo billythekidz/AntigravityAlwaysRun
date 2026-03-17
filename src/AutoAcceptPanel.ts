@@ -60,6 +60,9 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         // Send project name (folder name) to badge
         this._postToWebview({ command: 'projectProfile', profile: { projectName: getProjectName(), label: getProjectName(), description: '', emoji: '📁', defaultToggles: { yes: true, run: true, retry: true, accept: true, allow: true } } });
 
+        // Try to restore a previous session (server + inject script still alive)
+        this._tryRestoreSession();
+
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage((message) => {
             switch (message.command) {
@@ -224,6 +227,46 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     }
 
     /**
+     * Try to restore a previous session if ConfigServer + DevTools script are still alive.
+     * Called once on resolveWebviewView — if successful, sets running state without re-injection.
+     */
+    private async _tryRestoreSession() {
+        if (this._isRunning) { return; }  // already running
+        try {
+            const restored = await ConfigServer.tryRestore();
+            if (!restored) { return; }
+
+            console.log(`[AlwaysRun] Session restore: port=${restored.port}, scriptAlive=${restored.scriptAlive}`);
+            this._postToWebview({ command: 'diagLog', text: `🔄 Found existing server on port ${restored.port}`, logType: 'info' });
+
+            if (restored.scriptAlive) {
+                // Both server and script alive — full restore
+                this._configServer.attachToPort(restored.port);
+                this._isRunning = true;
+                this._scriptInjected = true;
+                this._syncConfig();
+
+                // Wire click reporting
+                this._configServer.onClicked((data: any) => {
+                    this._postToWebview({
+                        command: 'scanResult',
+                        clicked: 1,
+                        found: [{ text: data.text || '?', source: data.source || 'unknown' }]
+                    });
+                });
+
+                this._postToWebview({ command: 'started' });
+                this._postToWebview({ command: 'diagLog', text: '✅ Session restored — script is still running', logType: 'success' });
+            } else {
+                // Server alive but script dead — user needs to re-inject
+                this._postToWebview({ command: 'diagLog', text: '⚠️ Server alive but inject script expired — click Start to re-inject', logType: 'warning' });
+            }
+        } catch (e) {
+            console.log('[AlwaysRun] Restore failed:', e);
+        }
+    }
+
+    /**
      * Build the one-time injection script.
      * - Config file is re-read every 1s (cheap, no DevTools round-trips)
      * - Scan runs at the user-configured interval (default 3s)
@@ -325,7 +368,11 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
   scanAll();
   console.log('[AlwaysRun] Injected. Server:', SERVER);
 
-  // Signal extension host that injection succeeded (POST /signali   fetch(SERVER + '/signal', {method:'POST'}).catch(function(){});
+  // Signal extension host that injection succeeded
+  fetch(SERVER + '/signal', {method:'POST'}).catch(function(){});
+
+  // Heartbeat - let server know script is still alive
+  setInterval(function(){ fetch(SERVER + '/heartbeat', {method:'POST'}).catch(function(){}); }, 5000);
 })();`;
     }
 
