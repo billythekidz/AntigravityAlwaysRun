@@ -44,6 +44,10 @@
     const countAllow  = document.getElementById('count-allow');
     var typeCounts = { yes: 0, run: 0, retry: 0, accept: 0, allow: 0 };
 
+    // Scroll toggle
+    const toggleScroll  = document.getElementById('toggle-scroll');
+    const scrollWarning = document.getElementById('scroll-warning');
+
     // ==================== LOGGING ====================
     function addLog(text, type) {
         type = type || 'info';
@@ -125,6 +129,14 @@
     toggleAllow.addEventListener('change', function () {
         addLog('Allow: ' + (toggleAllow.checked ? 'ON' : 'OFF'), toggleAllow.checked ? 'success' : 'warning');
         sendToggleState();
+    });
+    toggleScroll.addEventListener('change', function () {
+        var on = toggleScroll.checked;
+        addLog('Auto-scroll: ' + (on ? 'ON' : 'OFF'), on ? 'success' : 'warning');
+        if (scrollWarning) {
+            scrollWarning.classList.toggle('hidden', on);
+        }
+        vscode.postMessage({ command: 'scrollToggle', autoScroll: on });
     });
 
     // ==================== MESSAGE HANDLER ====================

@@ -263,6 +263,17 @@ kbd {
     color: var(--vscode-foreground);
 }
 
+.scroll-warning {
+    font-size: 10px;
+    color: var(--vscode-editorWarning-foreground, #cca700);
+    background: rgba(204, 167, 0, 0.08);
+    border: 1px solid rgba(204, 167, 0, 0.25);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-top: 6px;
+    line-height: 1.4;
+}
+
 /* ── Button Toggles ── */
 .toggles-section {
     display: flex;

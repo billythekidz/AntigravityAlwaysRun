@@ -32,6 +32,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     private _scriptInjected = false;
 
     private _toggles = { yes: true, run: true, retry: true, accept: true, allow: true };
+    private _autoScroll = true;
 
     constructor(private readonly _extensionUri: vscode.Uri) {
         this._native = new NativeClickHandler();
@@ -74,7 +75,11 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'intervalChange':
                     this._scanIntervalMs = Math.max(500, Math.min(10000000, message.intervalMs));
-                    this._syncConfig();  // script picks up new interval on next tick
+                    this._syncConfig();
+                    break;
+                case 'scrollToggle':
+                    this._autoScroll = !!message.autoScroll;
+                    this._syncConfig();
                     break;
                 case 'diagnose':
                     this._runDiagnosis();
@@ -95,11 +100,11 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                     // Generate and send the injection script to the webview
                     this._configServer.start().then(port => {
                         const matchers: string[] = [];
-                        if (this._toggles.yes)    { matchers.push('yes'); }
-                        if (this._toggles.run)    { matchers.push('run'); }
-                        if (this._toggles.retry)  { matchers.push('retry'); }
+                        if (this._toggles.yes) { matchers.push('yes'); }
+                        if (this._toggles.run) { matchers.push('run'); }
+                        if (this._toggles.retry) { matchers.push('retry'); }
                         if (this._toggles.accept) { matchers.push('accept'); }
-                        if (this._toggles.allow)  { matchers.push('allow this conversation'); }
+                        if (this._toggles.allow) { matchers.push('allow this conversation'); }
                         const liveCfg = {
                             active: true,
                             matchers,
@@ -147,7 +152,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             windows = electron.BrowserWindow.getAllWindows();
             log(`✅ BrowserWindow.getAllWindows() — ${windows.length} window(s)`, 'success');
             windows.forEach((w: any, i: number) => {
-                try { log(`   Window[${i}]: "${w.getTitle()}" id=${w.id}`, 'info'); } catch {}
+                try { log(`   Window[${i}]: "${w.getTitle()}" id=${w.id}`, 'info'); } catch { }
             });
         } catch (e: any) {
             log('❌ BrowserWindow.getAllWindows() FAILED: ' + e.message, 'error');
@@ -202,19 +207,20 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
      */
     private _syncConfig() {
         const matchers: string[] = [];
-        if (this._toggles.yes)    { matchers.push('yes'); }
-        if (this._toggles.run)    { matchers.push('run'); }
-        if (this._toggles.retry)  { matchers.push('retry'); }
+        if (this._toggles.yes) { matchers.push('yes'); }
+        if (this._toggles.run) { matchers.push('run'); }
+        if (this._toggles.retry) { matchers.push('retry'); }
         if (this._toggles.accept) { matchers.push('accept'); }
-        if (this._toggles.allow)  { matchers.push('allow this conversation'); }
+        if (this._toggles.allow) { matchers.push('allow this conversation'); }
         const cfg = {
-            active:     this._isRunning,
+            active: this._isRunning,
             matchers,
-            excludes:   DEFAULT_EXCLUDES,
-            intervalMs: this._scanIntervalMs
+            excludes: DEFAULT_EXCLUDES,
+            intervalMs: this._scanIntervalMs,
+            autoScroll: this._autoScroll
         };
         this._configServer.update(cfg);
-        try { fs.writeFileSync(this._configPath, JSON.stringify(cfg), 'utf8'); } catch {}
+        try { fs.writeFileSync(this._configPath, JSON.stringify(cfg), 'utf8'); } catch { }
     }
 
     /**
@@ -296,7 +302,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
 
   function scanAll() {
     if (!window.__agyConfig.active) { return; }
-    scrollToBottom();
+    if (window.__agyConfig.autoScroll !== false) { scrollToBottom(); }
     console.log('[AlwaysRun] Scanning... matchers:', window.__agyConfig.matchers.join(','));
     scanDoc(document, 'main');
     document.querySelectorAll('iframe').forEach(function(f,i){
@@ -321,8 +327,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
   scanAll();
   console.log('[AlwaysRun] Injected. Server:', SERVER);
 
-  // Signal extension host that injection succeeded (POST /signal)
-  fetch(SERVER + '/signal', {method:'POST'}).catch(function(){});
+  // Signal extension host that injection succeeded (POST /signali   fetch(SERVER + '/signal', {method:'POST'}).catch(function(){});
 })();`;
     }
 
@@ -341,14 +346,14 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         // First time: start ConfigServer + inject via DevTools
         this._postToWebview({ command: 'diagLog', text: '\ud83d\udc89 First start — injecting script via DevTools...', logType: 'info' });
         const matchers: string[] = [];
-        if (this._toggles.yes)    { matchers.push('yes'); }
-        if (this._toggles.run)    { matchers.push('run'); }
-        if (this._toggles.retry)  { matchers.push('retry'); }
+        if (this._toggles.yes) { matchers.push('yes'); }
+        if (this._toggles.run) { matchers.push('run'); }
+        if (this._toggles.retry) { matchers.push('retry'); }
         if (this._toggles.accept) { matchers.push('accept'); }
         const liveCfg = {
-            active:     true,
+            active: true,
             matchers,
-            excludes:   DEFAULT_EXCLUDES,
+            excludes: DEFAULT_EXCLUDES,
             intervalMs: this._scanIntervalMs
         };
 
@@ -422,7 +427,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     private async _injectViaMacOS(script: string): Promise<boolean> {
         // Delete stale signal file
         const cfgPath = path.join(os.tmpdir(), 'agy-config.json');
-        try { fs.unlinkSync(cfgPath); } catch {}
+        try { fs.unlinkSync(cfgPath); } catch { }
 
         // 1. Open DevTools (VS Code API — no OS permissions needed)
         this._postToWebview({ command: 'diagLog', text: '🔧 Opening DevTools via VS Code API...', logType: 'info' });
@@ -495,11 +500,11 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         this._postToWebview({ command: 'diagLog', text: '▶️ Manual Start — server starting, waiting for manual injection...', logType: 'info' });
 
         const matchers: string[] = [];
-        if (this._toggles.yes)    { matchers.push('yes'); }
-        if (this._toggles.run)    { matchers.push('run'); }
-        if (this._toggles.retry)  { matchers.push('retry'); }
+        if (this._toggles.yes) { matchers.push('yes'); }
+        if (this._toggles.run) { matchers.push('run'); }
+        if (this._toggles.retry) { matchers.push('retry'); }
         if (this._toggles.accept) { matchers.push('accept'); }
-        if (this._toggles.allow)  { matchers.push('allow this conversation'); }
+        if (this._toggles.allow) { matchers.push('allow this conversation'); }
         const liveCfg = {
             active: true,
             matchers,
@@ -525,7 +530,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
 
             // Delete stale signal file and poll for manual injection confirmation
             const cfgPath = path.join(os.tmpdir(), 'agy-config.json');
-            try { fs.unlinkSync(cfgPath); } catch {}
+            try { fs.unlinkSync(cfgPath); } catch { }
             this._pollForSignal(cfgPath, 120).then(confirmed => {
                 if (confirmed) {
                     this._scriptInjected = true;
@@ -597,16 +602,16 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             </div>
             <div class="warning-body" id="warning-body">
                 <p>${isVi
-                    ? 'Bạn <strong>hoàn toàn chịu trách nhiệm</strong> khi để agent chạy tự động. Hãy ý thức các rủi ro:'
-                    : 'You are <strong>fully responsible</strong> when running the agent autonomously. Be aware of the risks:'}</p>
+                ? 'Bạn <strong>hoàn toàn chịu trách nhiệm</strong> khi để agent chạy tự động. Hãy ý thức các rủi ro:'
+                : 'You are <strong>fully responsible</strong> when running the agent autonomously. Be aware of the risks:'}</p>
                 <ul>
                     <li>${isVi ? '🔥 Project có thể bị phá hủy hoặc sửa đổi ngoài ý muốn' : '🔥 Your project may be destroyed or modified unexpectedly'}</li>
                     <li>${isVi ? '💾 Các ổ đĩa hoặc project khác trên máy có thể bị can thiệp không kiểm soát' : '💾 Other drives or projects on your machine may be affected without control'}</li>
                     <li>${isVi ? '💸 Quota sử dụng Antigravity models sẽ bị tiêu tốn rất nhanh' : '💸 Antigravity model quota will be consumed very quickly'}</li>
                 </ul>
                 <p class="warning-tip">${isVi
-                    ? '💡 Khuyến nghị: sử dụng gói <strong>Google AI Ultra</strong> để tránh hết quota. <a href="#" class="ext-link" data-url="https://gamikey.com/nang-cap-google-ai-tro-ly-thong-minh-member-slot/?ref=theaux">Mua giá chiết khấu tại đây</a>. Hãy thiết lập <strong>rules</strong> cho agent hợp lý trước khi bật auto.'
-                    : '💡 Recommended: use <strong>Google AI Ultra</strong> plan to avoid running out of quota. <a href="#" class="ext-link" data-url="https://gamikey.com/nang-cap-google-ai-tro-ly-thong-minh-member-slot/?ref=theaux">Get it at a discount here</a>. Set up proper <strong>rules</strong> for the agent before enabling auto mode.'}</p>
+                ? '💡 Khuyến nghị: sử dụng gói <strong>Google AI Ultra</strong> để tránh hết quota. <a href="#" class="ext-link" data-url="https://gamikey.com/nang-cap-google-ai-tro-ly-thong-minh-member-slot/?ref=theaux">Mua giá chiết khấu tại đây</a>. Hãy thiết lập <strong>rules</strong> cho agent hợp lý trước khi bật auto.'
+                : '💡 Recommended: use <strong>Google AI Ultra</strong> plan to avoid running out of quota. <a href="#" class="ext-link" data-url="https://gamikey.com/nang-cap-google-ai-tro-ly-thong-minh-member-slot/?ref=theaux">Get it at a discount here</a>. Set up proper <strong>rules</strong> for the agent before enabling auto mode.'}</p>
             </div>
         </div>
 
@@ -718,6 +723,22 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                     <input type="checkbox" id="toggle-allow" checked>
                     <span class="toggle-slider"></span>
                 </label>
+            </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Auto-scroll toggle -->
+        <div class="toggles-section">
+            <div class="toggle-row">
+                <span class="toggle-label">📜 Auto-scroll</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="toggle-scroll" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="scroll-warning hidden" id="scroll-warning">
+                ⚠️ Auto-scroll is disabled. Buttons outside the viewport may not be detected. You must manually scroll to the bottom of the chat for auto-click to work.
             </div>
         </div>
 
