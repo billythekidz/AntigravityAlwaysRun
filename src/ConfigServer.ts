@@ -11,7 +11,10 @@ export interface ScanConfig {
     autoScroll?: boolean;
 }
 
-const SESSION_FILE = path.join(os.tmpdir(), 'agy-session.json');
+function sessionFilePath(projectName: string): string {
+    const safe = projectName.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase() || 'default';
+    return path.join(os.tmpdir(), `agy-session-${safe}.json`);
+}
 
 /**
  * Tiny localhost HTTP server that exposes the current scan config as JSON.
@@ -24,6 +27,8 @@ export class ConfigServer {
     private _port = 0;
     private _startTime = 0;
     private _lastHeartbeat = 0;
+    private _projectName: string;
+    private _sessionFile: string;
     private _config: ScanConfig = {
         active: false,
         matchers: [],
@@ -34,11 +39,16 @@ export class ConfigServer {
     private _onSignal: (() => void) | null = null;
     private _onClicked: ((data: any) => void) | null = null;
 
+    constructor(projectName = '') {
+        this._projectName = projectName;
+        this._sessionFile = sessionFilePath(projectName);
+    }
+
     async start(): Promise<number> {
         if (this._server) { return this._port; }  // already running locally
 
         // Try restoring from a previous session's still-alive server
-        const existing = await ConfigServer.tryRestore();
+        const existing = await ConfigServer.tryRestore(this._projectName);
         if (existing) {
             console.log(`[AlwaysRun] Reusing existing ConfigServer on port ${existing.port}`);
             this._port = existing.port;
@@ -135,7 +145,7 @@ export class ConfigServer {
     /** Save session info so extension can restore after reload */
     private _saveSession() {
         try {
-            fs.writeFileSync(SESSION_FILE, JSON.stringify({
+            fs.writeFileSync(this._sessionFile, JSON.stringify({
                 port: this._port,
                 pid: process.pid,
                 startTime: this._startTime
@@ -147,9 +157,9 @@ export class ConfigServer {
      * Try to restore a previous session by probing the saved port.
      * Returns { port, config, scriptAlive } or null.
      */
-    static async tryRestore(): Promise<{ port: number; config: ScanConfig; scriptAlive: boolean } | null> {
+    static async tryRestore(projectName = ''): Promise<{ port: number; config: ScanConfig; scriptAlive: boolean } | null> {
         try {
-            const raw = fs.readFileSync(SESSION_FILE, 'utf8');
+            const raw = fs.readFileSync(sessionFilePath(projectName), 'utf8');
             const session = JSON.parse(raw);
             if (!session.port) { return null; }
 
@@ -199,6 +209,6 @@ export class ConfigServer {
         this._server?.close();
         this._server = null;
         // Clean up session file
-        try { fs.unlinkSync(SESSION_FILE); } catch {}
+        try { fs.unlinkSync(this._sessionFile); } catch {}
     }
 }

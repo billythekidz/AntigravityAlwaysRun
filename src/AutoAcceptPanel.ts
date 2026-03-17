@@ -37,7 +37,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     constructor(private readonly _extensionUri: vscode.Uri) {
         this._native = new NativeClickHandler();
         this._configPath = path.join(os.tmpdir(), 'agy-config.json');
-        this._configServer = new ConfigServer();
+        this._configServer = new ConfigServer(getProjectName());
     }
 
     public resolveWebviewView(
@@ -233,7 +233,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     private async _tryRestoreSession() {
         if (this._isRunning) { return; }  // already running
         try {
-            const restored = await ConfigServer.tryRestore();
+            const restored = await ConfigServer.tryRestore(getProjectName());
             if (!restored) { return; }
 
             console.log(`[AlwaysRun] Session restore: port=${restored.port}, scriptAlive=${restored.scriptAlive}`);

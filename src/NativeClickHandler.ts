@@ -250,45 +250,67 @@ $diag += "Script decoded: $($scriptContent.Length) chars"
 $cfgDel = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), 'agy-config.json')
 if (Test-Path $cfgDel) { Remove-Item $cfgDel -Force -ErrorAction SilentlyContinue }
 
-# ── Step 1: Open DevTools if not already open ─────────────────────────────
-$devWin = Find-Window 'Developer Tools - vscode-file'
+$devWin = $null
+$targetPid = 0
+
+# First, find the correct editor window for THIS project
+$winCond = New-Object $PC($UIA::ControlTypeProperty, $CT::Window)
+$wins    = $UIA::RootElement.FindAll($TS::Children, $winCond)
+$agWin   = $null
+foreach ($w in $wins) {
+    $t = $w.GetCurrentPropertyValue($UIA::NameProperty)
+    if ($t -match 'Developer Tools') { continue }
+    $winPid = $w.GetCurrentPropertyValue($UIA::ProcessIdProperty)
+    try {
+        $proc = Get-Process -Id $winPid -ErrorAction SilentlyContinue
+        if (-not $proc -or $proc.ProcessName -notmatch 'antigravity|code') { continue }
+    } catch { continue }
+    if ($projectName -ne '' -and $t -match [regex]::Escape($projectName)) {
+        $agWin = $w; $targetPid = $winPid; break
+    }
+    if ($t -match ' - Antigravity| - Visual Studio Code') { $agWin = $w; $targetPid = $winPid }
+}
+if (-not $agWin) {
+    Write-Output (@{clicked=0;found=@();diag=$diag;error="Editor window not found for project '$projectName'"} | ConvertTo-Json -Compress)
+    exit
+}
+$diag += "Target window: '$($agWin.GetCurrentPropertyValue($UIA::NameProperty))' (PID: $targetPid)"
+
+# Check if DevTools is already open for THIS process (same PID)
+foreach ($w in $wins) {
+    $t = $w.GetCurrentPropertyValue($UIA::NameProperty)
+    if ($t -match 'Developer Tools') {
+        $dtPid = $w.GetCurrentPropertyValue($UIA::ProcessIdProperty)
+        if ($dtPid -eq $targetPid) { $devWin = $w; break }
+    }
+}
+
 if (-not $devWin) {
     $diag += "DevTools not open, opening via Command Palette..."
-
-    # Find the correct Antigravity editor window for this project
-    $winCond = New-Object $PC($UIA::ControlTypeProperty, $CT::Window)
-    $wins    = $UIA::RootElement.FindAll($TS::Children, $winCond)
-    $agWin   = $null
-    $bestCount = -1
-    $cc = [System.Windows.Automation.Condition]::TrueCondition
-    foreach ($w in $wins) {
-        $t = $w.GetCurrentPropertyValue($UIA::NameProperty)
-        if ($t -match 'Developer Tools') { continue }
-        if ($t.Trim() -eq '' -or $t -match '^Agent Manager$|^Default IME$|^Manager$') { continue }
-        $winPid = $w.GetCurrentPropertyValue($UIA::ProcessIdProperty)
-        try {
-            $proc = Get-Process -Id $winPid -ErrorAction SilentlyContinue
-            if (-not $proc) { continue }
-            if ($proc.ProcessName -notmatch 'antigravity|code') { continue }
-        } catch { continue }
-        # Prefer window whose title starts with the project name (exact project match)
-        if ($projectName -ne '' -and $t -match "^$([regex]::Escape($projectName)).*Antigravity") {
-            $agWin = $w; break
-        }
-        # Fallback: main editor has " - Antigravity" in title
-        if ($t -match ' - Antigravity| - Visual Studio Code') { $agWin = $w; break }
-        try {
-            $cnt = $w.FindAll($TS::Subtree, $cc).Count
-            if ($cnt -gt $bestCount) { $agWin = $w; $bestCount = $cnt }
-        } catch {}
-    }
-    if (-not $agWin) {
-        Write-Output (@{clicked=0;found=@();diag=$diag;error='Antigravity/Code window not found'} | ConvertTo-Json -Compress)
-        exit
-    }
     $diag += "Main window: '$($agWin.GetCurrentPropertyValue($UIA::NameProperty))'"
 
     $hAgWnd = [IntPtr]$agWin.GetCurrentPropertyValue($UIA::NativeWindowHandleProperty)
+
+    # Wait for user to switch to correct project window (max 15s)
+    $waitMax = 15; $waited = 0
+    while ($waited -lt $waitMax) {
+        $fgHwnd = [W2]::GetForegroundWindow()
+        if ($fgHwnd -eq $hAgWnd) { break }
+        # Check if foreground belongs to same process
+        $fgTid = [W2]::GetWindowThreadProcessId($fgHwnd, [IntPtr]::Zero)
+        # Try to bring our window to front
+        Invoke-ForceFocus $hAgWnd
+        Start-Sleep -Milliseconds 1000
+        $waited++
+        if ($waited -ge 3) {
+            $diag += "Waiting for correct window to be in foreground... ($waited s)"
+        }
+    }
+    if ($waited -ge $waitMax) {
+        $diag += "Timeout waiting for project window focus"
+        Write-Output (@{clicked=0;found=@();diag=$diag;error="Timeout: project window '$projectName' not in foreground"} | ConvertTo-Json -Compress)
+        exit
+    }
     Invoke-ForceFocus $hAgWnd
     Start-Sleep -Milliseconds 300
 
@@ -304,8 +326,14 @@ if (-not $devWin) {
     $diag += "Command palette: Toggle Developer Tools sent"
     Start-Sleep -Milliseconds 2500
 
-    $devWin = Find-Window 'Developer Tools - vscode-file'
-
+    $devWin = $null
+    foreach ($w in $UIA::RootElement.FindAll($TS::Children, $winCond)) {
+        $t = $w.GetCurrentPropertyValue($UIA::NameProperty)
+        if ($t -match 'Developer Tools') {
+            $dtPid = $w.GetCurrentPropertyValue($UIA::ProcessIdProperty)
+            if ($dtPid -eq $targetPid) { $devWin = $w; break }
+        }
+    }
 }
 
 if (-not $devWin) {
