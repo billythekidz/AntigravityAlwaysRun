@@ -263,8 +263,40 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
     } catch(e) {}
   }
 
+  // Scroll chat containers to bottom to force virtualized buttons into DOM
+  function scrollToBottom() {
+    try {
+      // VS Code chat panel scrollable containers
+      var selectors = [
+        '.monaco-list-rows',
+        '.chat-widget .monaco-scrollable-element',
+        '[role="list"]',
+        '.interactive-list',
+        '.scm-editor-container'
+      ];
+      function doScroll(root) {
+        selectors.forEach(function(sel) {
+          try {
+            var els = root.querySelectorAll(sel);
+            els.forEach(function(el) {
+              if (el.scrollHeight > el.clientHeight) {
+                el.scrollTop = el.scrollHeight;
+              }
+            });
+          } catch(e) {}
+        });
+      }
+      doScroll(document);
+      // Also scroll inside shadow DOMs
+      (function sd(root,d){if(d>3)return;try{root.querySelectorAll('*').forEach(function(el){
+        if(el.shadowRoot){doScroll(el.shadowRoot);sd(el.shadowRoot,d+1);}
+      });}catch(e){};})(document,0);
+    } catch(e) {}
+  }
+
   function scanAll() {
     if (!window.__agyConfig.active) { return; }
+    scrollToBottom();
     console.log('[AlwaysRun] Scanning... matchers:', window.__agyConfig.matchers.join(','));
     scanDoc(document, 'main');
     document.querySelectorAll('iframe').forEach(function(f,i){
