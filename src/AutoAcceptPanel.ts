@@ -481,7 +481,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
             this._postToWebview({ command: 'diagLog', text: '📋 Script copied to clipboard', logType: 'info' });
 
             const projectName = vscode.workspace.workspaceFolders?.[0]?.name ?? '';
-            this._native.openDevToolsAndInject(projectName).then(result => {
+            this._native.openDevToolsAndInject(projectName).then(async result => {
                 if (result.error) {
                     this._postToWebview({ command: 'scanError', message: result.error });
                     this._isRunning = false;
@@ -494,6 +494,25 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                         this._postToWebview({ command: 'diagLog', text: line, logType: 'info' });
                     }
                 }
+
+                // ── Verify injection via /signal confirmation ──────────────
+                // The PowerShell/bash script can "succeed" (exit 0) even when
+                // the paste didn't land in the DevTools console. The REAL
+                // confirmation is the injected JS calling POST /signal.
+                // Poll for up to 5s after the native handler returns.
+                if (!this._configServer.hasScriptSignal) {
+                    this._postToWebview({ command: 'diagLog', text: '⏳ Waiting for injection confirmation...', logType: 'info' });
+                    const confirmed = await this._waitForSignal(5000);
+                    if (!confirmed) {
+                        this._postToWebview({ command: 'diagLog', text: '⚠️ Injection not confirmed — script may not have pasted. Click Start to retry.', logType: 'warning' });
+                        this._isRunning = false;
+                        this._scriptInjected = false;
+                        this._syncConfig();
+                        this._postToWebview({ command: 'stopped' });
+                        return;
+                    }
+                }
+
                 this._scriptInjected = true;
                 this._postToWebview({ command: 'diagLog', text: '\u2705 Injected — config via HTTP port ' + port, logType: 'success' });
             }).catch(err => {
@@ -574,6 +593,16 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
 
     private _sleep(ms: number): Promise<void> {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /** Poll ConfigServer.hasScriptSignal for up to `timeoutMs` milliseconds. */
+    private async _waitForSignal(timeoutMs: number): Promise<boolean> {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            if (this._configServer.hasScriptSignal) { return true; }
+            await this._sleep(500);
+        }
+        return this._configServer.hasScriptSignal;
     }
 
     /**

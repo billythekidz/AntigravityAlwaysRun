@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.0.74] — 2026-03-18
+### Changed
+- fix: verify injection via signal confirmation
+
+
+## [1.0.73] — 2026-03-18
+### Changed
+- fix: verify injection via signal confirmation — re-inject on failed paste instead of falsely skipping
+
+
+## [1.0.72] — 2026-03-18
+### Changed
+- fix: verify injection via signal confirmation — re-inject on failed paste instead of falsely skipping
+
+
 ## [1.0.71] — 2026-03-17
 ### Changed
 - chore: rename extension displayName to Antigravity Auto Run Always Click
