@@ -178,7 +178,7 @@
                         addLog('🖱️ Clicked: "' + btn.text + '" (' + btn.source + ')', 'click');
                         // Match type from button text
                         var t = (btn.text || '').toLowerCase();
-                        if (t.indexOf('allow this conversation') !== -1) { typeCounts.allow++; if(countAllow) countAllow.textContent = typeCounts.allow + ' times'; }
+                        if (t.indexOf('allow this conversation') !== -1 || t.indexOf('always allow') !== -1) { typeCounts.allow++; if(countAllow) countAllow.textContent = typeCounts.allow + ' times'; }
                         else if (t.indexOf('yes') !== -1)    { typeCounts.yes++;    if(countYes)    countYes.textContent = typeCounts.yes + ' times'; }
                         else if (t.indexOf('run') !== -1)    { typeCounts.run++;    if(countRun)    countRun.textContent = typeCounts.run + ' times'; }
                         else if (t.indexOf('retry') !== -1)  { typeCounts.retry++;  if(countRetry)  countRetry.textContent = typeCounts.retry + ' times'; }

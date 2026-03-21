@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.75] — 2026-03-21
+### Changed
+- fix: auto-click Always Allow button - removed from excludes and added as matcher
+
+
 ## [1.0.74] — 2026-03-18
 ### Changed
 - fix: verify injection via signal confirmation

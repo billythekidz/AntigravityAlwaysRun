@@ -14,7 +14,7 @@ function getProjectName(): string {
 }
 
 /** Fixed exclude list — same for all projects. */
-const DEFAULT_EXCLUDES = ['always run', 'always allow', 'always deny'];
+const DEFAULT_EXCLUDES = ['always run', 'always deny'];
 
 
 export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
@@ -108,7 +108,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
                         if (this._toggles.run) { matchers.push('run'); }
                         if (this._toggles.retry) { matchers.push('retry'); }
                         if (this._toggles.accept) { matchers.push('accept'); }
-                        if (this._toggles.allow) { matchers.push('allow this conversation'); }
+                        if (this._toggles.allow) { matchers.push('allow this conversation'); matchers.push('always allow'); }
                         const liveCfg = {
                             active: true,
                             matchers,
@@ -215,7 +215,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         if (this._toggles.run) { matchers.push('run'); }
         if (this._toggles.retry) { matchers.push('retry'); }
         if (this._toggles.accept) { matchers.push('accept'); }
-        if (this._toggles.allow) { matchers.push('allow this conversation'); }
+        if (this._toggles.allow) { matchers.push('allow this conversation'); matchers.push('always allow'); }
         const cfg = {
             active: this._isRunning,
             matchers,
@@ -423,7 +423,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         if (this._toggles.run) { matchers.push('run'); }
         if (this._toggles.retry) { matchers.push('retry'); }
         if (this._toggles.accept) { matchers.push('accept'); }
-        if (this._toggles.allow) { matchers.push('allow'); }
+        if (this._toggles.allow) { matchers.push('allow'); matchers.push('always allow'); }
         const liveCfg = {
             active: true,
             matchers,
@@ -626,7 +626,7 @@ export class AutoAcceptPanelProvider implements vscode.WebviewViewProvider {
         if (this._toggles.run) { matchers.push('run'); }
         if (this._toggles.retry) { matchers.push('retry'); }
         if (this._toggles.accept) { matchers.push('accept'); }
-        if (this._toggles.allow) { matchers.push('allow this conversation'); }
+        if (this._toggles.allow) { matchers.push('allow this conversation'); matchers.push('always allow'); }
         const liveCfg = {
             active: true,
             matchers,
