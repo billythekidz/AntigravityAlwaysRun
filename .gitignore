@@ -15,3 +15,7 @@ out/
 
 # Source maps
 *.js.map
+
+# Scheduled auto-update system (private)
+scheduled-updates/
+_release_body.md
